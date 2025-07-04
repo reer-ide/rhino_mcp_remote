@@ -1,63 +1,86 @@
-# RhinoMCP Remote - Cloud-Hosted Rhino Model Context Protocol
+# RhinoMCP Remote Server
 
-This is a proprietary cloud-hosted implementation of the RhinoMCP protocol. This project extends Reer's [open-source RhinoMCP project](https://github.com/JunlingZhuang/rhino_mcp) with remote hosting capabilities via Cloudflare, allowing for seamless integration between Rhino/Grasshopper and LLMs through the Model Context Protocol (MCP).
+**RhinoMCP** is a proprietary, cloud-hosted server for the Model Context Protocol (MCP). It extends the open-source [RhinoMCP project](https://github.com/reer-ide/rhino_mcp) to enable a robust, scalable bridge between AI host applications (like Claude) and a user's local Rhino/Grasshopper instances.
 
 **IMPORTANT: This is proprietary software owned by Reer, Inc. All rights reserved.**
 
-## Key Differences from the Open Source Version
+## Project Status & Direction
 
-- **Cloud-Hosted Architecture**: Deployed on Cloudflare for reliable, scalable remote access
-- **Enhanced Security**: Additional authentication and access control features
-- **Proprietary Extensions**: Custom features exclusive to this implementation
+This repository contains two visions for the RhinoMCP server:
 
+1.  **Current Implementation (legacy Python implementation for local development)**: The existing codebase in `/local_rhino_mcp` is a Python-based implementation designed to run locally and connects Claude desktop to Rhino through stdio. It is the functional basis of the current system.
+2.  **Proposed Architecture (Node.js on GCP)**: The documents in the `/docs` folder outline a detailed plan to migrate the server to a more scalable, cloud-native architecture using Node.js/TypeScript on Google Cloud Platform (GCP).
+
+This `README` primarily reflects the **Proposed Architecture**, as it represents the future direction of the project.
+
+## Proposed System Architecture (Node.js on GCP)
+
+The future architecture is designed for high scalability and security, consisting of three core components:
+
+1.  **Host Application**: An external application (e.g., Reer's AI Assistant) that sends MCP commands.
+2.  **RhinoMCP Server**: A Node.js/TypeScript server on GCP that manages WebSockets, auth, and message routing.
+3.  **Rhino Plugin**: The client-side Python plugin running in Rhino that executes CAD commands.
+
+The server will be built on Google Cloud Platform, leveraging the following services:
+- **Google Cloud Run**: For scalable, containerized application hosting.
+- **Google Memorystore (Redis)**: For session management and state.
+- **Google Cloud SQL (PostgreSQL)**: For persistent user and project data.
+
+```mermaid
+graph TD
+    subgraph "User's Local Machine"
+        RhinoPlugin["Rhino 3D Plugin<br/>(Python Client)"]
+    end
+
+    subgraph "Google Cloud Platform (Proposed)"
+        Server["RhinoMCP Server<br/>(Node.js on Cloud Run)"]
+        Redis["Memorystore (Redis)<br/>(Session & State)"]
+        Postgres["Cloud SQL (PostgreSQL)<br/>(User & Project Data)"]
+    end
+
+    HostApp["Host Applications<br/>(e.g., AI Assistants)"] -- "MCP Commands (JSON-RPC)" --> Server
+    Server -- "WebSocket (WSS)" --> RhinoPlugin
+    RhinoPlugin -- "Executes RhinoScript" --> Rhino3D[("Rhino 3D")]
+    Server -- "Manages State" --> Redis
+    Server -- "Stores Metadata" --> Postgres
+```
 
 ## Features
 
-#### Rhino
+- **Two-way communication**: Connect AI assistants to Rhino via a WebSocket server.
+- **Object & Layer Management**: Create, modify, and manage 3D objects and layers in Rhino.
+- **Scene Inspection**: Get detailed information and screenshots from the current Rhino scene.
+- **Code Execution**: Run arbitrary Python code in Rhino remotely.
+- **Multi-Instance Support**: Manage connections to multiple Rhino instances per user.
 
-- **Two-way communication**: Connect Claude AI to Rhino through a socket-based server
-- **Object manipulation and management**: Create and modify 3D objects in Rhino including metadata
-- **Layer management**: View and interact with Rhino layers
-- **Scene inspection**: Get detailed information about the current Rhino scene (incl. screencapture)
-- **Code execution**: Run arbitrary Python code in Rhino from Claude
-- **Object selection**: Get information about the currently selected objects in Rhino
-- **RhinoScriptSyntax documentation**: Look up the documentation for a RhinoScriptSyntax 
-- ...
+## Local Development (for proposed Node.js server)
+
+The following steps are for setting up the **future** Node.js development environment.
+
+1.  **Prerequisites**: [Docker](https://www.docker.com/) and [Node.js](https://nodejs.org/) are required.
+2.  **Clone & Install**:
+    ```bash
+    git clone https://github.com/your-repo/rhino_mcp_remote.git
+    cd rhino_mcp_remote
+    # npm install # (Will be enabled once package.json is added)
+    ```
+3.  **Run Docker Environment**:
+    ```bash
+    # docker-compose up --build # (Will be enabled once docker-compose.yml is added)
+    ```
 
 ## Contributing
 
-We welcome contributions to the RhinoMCP project! If you're interested in helping, here are some ways to contribute:
-
-1. **Bug Reports**: If you find a bug, please create an issue with a detailed description of the problem and steps to reproduce it.
-2. **Feature Requests**: Have an idea for a new feature? Open an issue to discuss it.
-3. **Code Contributions**: Want to add a feature or fix a bug?
-   - Fork the repository
-   - Create a new branch for your changes
-   - Submit a pull request with a clear description of your changes
-
-Please ensure your code follows the existing style and includes appropriate documentation.
-
-## Cloudflare Deployment
-
-This implementation is designed to be deployed on Cloudflare Workers or Pages. Deployment instructions:
-
-1. Configure your Cloudflare account and API tokens
-2. Set up the deployment pipeline using the provided scripts
-3. Deploy the server endpoints for remote access
-
-Detailed deployment instructions can be found in the `docs/cloudflare-deployment.md` file.
+Contributions are welcome. Please follow these steps:
+1.  Fork the repository.
+2.  Create a new branch for your feature or fix.
+3.  Submit a pull request with a clear description of your changes.
 
 ## License
 
-This is proprietary software owned by Reer, Inc. All rights reserved. 
-
-The original open-source RhinoMCP project is licensed under MIT and can be found at [original repo link].
+This is proprietary software owned by Reer, Inc. All rights reserved. The original open-source RhinoMCP project is licensed under MIT.
 
 ## Disclaimer
 
-This software is provided "as is", without warranty of any kind. Reer, Inc. makes no warranties with respect to the software, including but not limited to quality, reliability, compatibility, or fitness for a particular purpose.
-
-By using this software, you acknowledge and agree that Reer, Inc. shall not be liable for any direct, indirect, incidental, special, or consequential damages arising out of the use or inability to use the software.
-
-This is a proprietary product in active development. Unauthorized use is strictly prohibited.
+This software is provided "as is", without warranty of any kind. Reer, Inc. is not liable for any damages arising from its use. Unauthorized use is strictly prohibited.
 
