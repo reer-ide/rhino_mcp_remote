@@ -1,7 +1,7 @@
 # RhinoMCP System Architecture Design Document
 
 **Version**: 1.0  
-**Date**: December 2024  
+**Date**: July 2025  
 **Status**: Beta Development
 
 ## Executive Summary

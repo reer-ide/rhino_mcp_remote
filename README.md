@@ -26,6 +26,14 @@ The server will be built on Google Cloud Platform, leveraging the following serv
 - **Google Memorystore (Redis)**: For session management and state.
 - **Google Cloud SQL (PostgreSQL)**: For persistent user and project data.
 
+### Technology Stack (Corrected)
+
+- **Backend**: Python 3.9+ with FastMCP SDK
+- **WebSocket Library**: FastMCP's built-in WebSocket support (with additional Python WebSocket libraries as needed)
+- **Database ORM**: SQLAlchemy or async alternatives (e.g., `databases` + `asyncpg`)
+- **Authentication**: JWT with OAuth 2.0
+- **Containerization**: Docker
+
 ```mermaid
 graph TD
     subgraph "User's Local Machine"
