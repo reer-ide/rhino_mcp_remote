@@ -80,12 +80,57 @@ RhinoMCP is a remote Model Context Protocol (MCP) server that enables AI-assiste
 
 ### Connection Establishment Flow
 ```
-1. User installs Rhino plugin and obtains auth token
-2. Plugin initiates WebSocket connection to server
-3. Server validates token in first message
-4. Server creates session in Redis with instance mapping
-5. Server acknowledges connection with session ID
-6. Plugin ready for MCP commands
+1. User starts host app (reer's IDE webapp)
+2. User clicks "Link with Rhino file" 
+3. Browser file explorer opens → user selects .3dm file
+4. Host app backend connects to remote MCP server
+5. Remote server creates a "connection session" and returns connection details
+6. Host app attempts to open Rhino file (if not already open)
+7. Host app calls Rhino plugin's _start_connection command with connection details
+8. Rhino plugin shows authorization UI with connection details
+9. User authorizes → plugin establishes bidirectional connection to remote server
+10. Remote server validates connection and updates session state
+11. Remote server notifies host app of successful connection
+12. Host app shows success and enables CAD operations
+
+```
+
+### Connection Establishment Flow diagram
+```mermaid
+sequenceDiagram
+    participant User
+    participant HostApp as Host App<br/>(reer's IDE)
+    participant RemoteServer as Remote MCP Server<br/>(Cloud Run)
+    participant RhinoPlugin as Rhino Plugin<br/>(Local)
+    participant RhinoCAD as Rhino CAD<br/>(Local)
+    
+    User->>HostApp: Click "Link with Rhino file"
+    HostApp->>User: Show file explorer
+    User->>HostApp: Select .3dm file
+    
+    HostApp->>RemoteServer: POST /sessions/create<br/>{file_path, user_id}
+    RemoteServer->>RemoteServer: Create session & connection token
+    RemoteServer->>HostApp: {session_id, connection_token, ws_port}
+    
+    HostApp->>RhinoPlugin: _start_connection<br/>{file_path, connection_token, ws_endpoint}
+    RhinoPlugin->>RhinoCAD: Open file if needed
+    RhinoPlugin->>User: Show authorization UI
+    
+    User->>RhinoPlugin: Authorize connection
+    RhinoPlugin->>RemoteServer: WebSocket connect<br/>ws://server:port?token=xxx
+    RemoteServer->>RemoteServer: Validate token & establish session
+    RemoteServer->>RhinoPlugin: Connection established
+    
+    RemoteServer->>HostApp: SSE: connection_established<br/>{session_id, instance_id}
+    HostApp->>User: Show success & enable CAD ops
+    
+    Note over HostApp,RhinoCAD: Bidirectional communication ready
+    HostApp->>RemoteServer: MCP Tool: create_sphere<br/>{session_id, instance_id}
+    RemoteServer->>RhinoPlugin: Forward: create_sphere
+    RhinoPlugin->>RhinoCAD: Execute command
+    RhinoCAD->>RhinoPlugin: Result
+    RhinoPlugin->>RemoteServer: Response
+    RemoteServer->>HostApp: MCP Response
 ```
 
 ### Multi-Instance Message Routing

@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     # Server configuration
     host: str = Field(default="127.0.0.1", description="Server host")
     port: int = Field(default=8080, description="Server port")
-    log_level: str = Field(default="info", description="Logging level")
+    log_level: str = Field(default="INFO", description="Logging level")
     
     # Redis configuration
     redis_url: Optional[str] = Field(default=None, description="Redis connection URL")
