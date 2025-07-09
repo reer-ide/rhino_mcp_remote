@@ -13,6 +13,7 @@ from starlette.responses import JSONResponse
 
 from .config import settings
 from .connection_manager import ConnectionManager
+from .tools import RhinoTools
 import asyncio
 import json
 
@@ -25,11 +26,18 @@ mcp = FastMCP(
     instructions= """
         This is a remote MCP server for Rhino(by Robert McNeel & Associates).
         It is used to connect to a user's local Rhino CAD instance and perform operations on it.
+        
+        IMPORTANT: All Rhino tool functions require a session_id parameter to identify which 
+        connected Rhino instance to communicate with. Make sure to use the session_id from 
+        the session creation response.
         """,
     )
 
 # Create connection manager instance
 connection_manager = ConnectionManager(redis_url=settings.redis_connection_url)
+
+# Initialize Rhino tools with the connection manager
+rhino_tools = RhinoTools(mcp, connection_manager)
 
 @mcp.custom_route("/health", methods=["GET"])
 async def health_check(request: Request) -> JSONResponse:
@@ -125,52 +133,6 @@ async def get_session_notifications(request: Request) -> JSONResponse:
         }
     )
 
-@mcp.tool()
-async def create_sphere(radius: float, session_id: str) -> str:
-    """Create a sphere in the connected Rhino instance"""
-    try:
-        message = {
-            "tool": "create_sphere",
-            "params": {"radius": radius}
-        }
-        
-        response = await connection_manager.send_to_rhino(session_id, message)
-        
-        if response.get("status") == "success":
-            return f"Successfully created sphere with radius {radius}. Object ID: {response.get('result', 'unknown')}"
-        else:
-            return f"Failed to create sphere: {response.get('error', 'Unknown error')}"
-            
-    except Exception as e:
-        logger.error(f"Error creating sphere: {e}")
-        return f"Error: {str(e)}"
-
-@mcp.tool()
-async def create_box(width: float, height: float, depth: float, session_id: str) -> str:
-    """Create a box in the connected Rhino instance"""
-    try:
-        message = {
-            "tool": "create_box",
-            "params": {"width": width, "height": height, "depth": depth}
-        }
-        
-        response = await connection_manager.send_to_rhino(session_id, message)
-        
-        if response.get("status") == "success":
-            return f"Successfully created box {width}x{height}x{depth}. Object ID: {response.get('result', 'unknown')}"
-        else:
-            return f"Failed to create box: {response.get('error', 'Unknown error')}"
-            
-    except Exception as e:
-        logger.error(f"Error creating box: {e}")
-        return f"Error: {str(e)}"
-
-@mcp.tool()
-def ping() -> str:
-    """Simple ping tool for testing connectivity."""
-    logger.info("Ping tool called")
-    return "pong"
-
 @mcp.resource("sessions/{session_id}/status")
 async def get_session_status(session_id: str) -> str:
     """Get connection session status"""
@@ -206,7 +168,16 @@ def server_info() -> str:
             "port": settings.port,
             "debug": settings.debug,
         },
-        "active_sessions": len(connection_manager.sessions)
+        "active_sessions": len(connection_manager.sessions),
+        "available_tools": [
+            "get_rhino_scene_info",
+            "get_rhino_layers", 
+            "get_rhino_objects_with_metadata",
+            "capture_rhino_viewport",
+            "execute_rhino_code",
+            "get_rhino_selected_objects",
+            "look_up_RhinoScriptSyntax"
+        ]
     }
     return str(info)
 
@@ -214,6 +185,7 @@ def server_info() -> str:
 def main():
     """Main entry point for the server."""
     logger.info(f"Starting Remote Rhino MCP Server on {settings.host}:{settings.port}")
+    logger.info("Available Rhino tools: get_rhino_scene_info, get_rhino_layers, get_rhino_objects_with_metadata, capture_rhino_viewport, execute_rhino_code, get_rhino_selected_objects, look_up_RhinoScriptSyntax")
     
     try:
         mcp.run(

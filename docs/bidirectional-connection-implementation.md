@@ -6,6 +6,16 @@ This document outlines the implementation plan for the bidirectional connection 
 
 ## UX Flow Analysis
 
+### For Onboarding
+1. User starts host app (reer's IDE webapp)
+2. User select Rhino and continue to next step
+3. Redirect to Rhino Connection Guide Page
+4. User clicks "Install Reer's Rhino Plugin"/"Install from Rhino Plugin Manager"
+5. Browser downloads the plugin / jumps to the guide session for Rhino Plugin Manager
+6. Host app attempts to open Rhino file (if not already open)
+7. Host app calls Rhino plugin's _start_connection command with connection details
+8. Rhino plugin shows authorization UI with connection details
+
 1. User starts host app (reer's IDE webapp)
 2. User clicks "Link with Rhino file" 
 3. Browser file explorer opens → user selects .3dm file

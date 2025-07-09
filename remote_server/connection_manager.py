@@ -12,7 +12,7 @@ from fastmcp import FastMCP
 logger = logging.getLogger(__name__)
 
 # Import mock Redis for fallback
-from .mock_redis import create_mock_redis
+from remote_server.utils.mock_redis import create_mock_redis
 
 @dataclass
 class ConnectionSession:
@@ -270,18 +270,22 @@ class ConnectionManager:
         await self.host_app_notifications[session.session_id].put(notification)
         logger.info(f"Notification queued for session {session.session_id}: {event_type}")
     
-    async def send_to_rhino(self, session_id: str, message: dict, timeout: float = 30.0) -> dict:
-        """Send message to Rhino instance and wait for response"""
+    async def send_to_rhino(self, session_id: str, tool: str, params: Optional[Dict[str, Any]] = None, timeout: float = 30.0) -> dict:
+        """Send a command to a Rhino instance and wait for a response."""
         session = self.sessions.get(session_id)
         if not session or not session.websocket:
             raise ValueError(f"No active connection for session {session_id}")
-        
-        # Add correlation ID and message type
+
+        # Prepare command message
         correlation_id = str(uuid.uuid4())
-        message["correlation_id"] = correlation_id
-        message["type"] = message.get("type", "command")
-        message["timestamp"] = datetime.now().isoformat()
-        
+        message = {
+            "type": "command",
+            "tool": tool,
+            "params": params or {},
+            "correlation_id": correlation_id,
+            "timestamp": datetime.now().isoformat()
+        }
+
         # Create future for response
         future = asyncio.Future()
         self.pending_responses[correlation_id] = future
@@ -289,7 +293,7 @@ class ConnectionManager:
         try:
             # Send message to Rhino
             await session.websocket.send(json.dumps(message))
-            logger.info(f"Sent message to Rhino {session.instance_id}: {message.get('tool', 'unknown')}")
+            logger.info(f"Sent command to Rhino {session.instance_id}: {tool}")
             
             # Wait for response with timeout
             response = await asyncio.wait_for(future, timeout=timeout)
@@ -307,7 +311,7 @@ class ConnectionManager:
             # Clean up pending response
             self.pending_responses.pop(correlation_id, None)
             raise e
-    
+
     async def get_session(self, session_id: str) -> Optional[ConnectionSession]:
         """Get session by ID"""
         return self.sessions.get(session_id)

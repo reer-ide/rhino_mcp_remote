@@ -64,14 +64,7 @@ This document breaks down the development tasks for Phase 1 of the RhinoMCP Remo
         - Implement message correlation system for request/response matching
         - Add connection authentication using tokens
         - Handle connection lifecycle (connect, disconnect, reconnect)
-
-- [ ] **Task 3.4: Enhanced Rhino Plugin Integration**
-    - **Requirements:**
-        - Extend existing Rhino plugin with WebSocket client capability
-        - Add authorization UI for connection approval
-        - Implement command processing and response handling
-        - Add HTTP server for host app communication
-
+        
 ## 4. Google Cloud Integration (Redis & PostgreSQL)
 
 - [ ] **Task 4.1: Set up Google Memorystore (Redis).**

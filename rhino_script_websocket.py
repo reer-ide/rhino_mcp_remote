@@ -20,11 +20,17 @@ from System.IO import MemoryStream
 from datetime import datetime
 import websocket
 import threading
+import uuid
 
 # Configuration
-SERVER_HOST = 'rhino-remote-mcp-authless.shawchen.workers.dev'
-USE_SSL = True  # Must be True for Cloudflare Worker
+SERVER_HOST = '127.0.0.1'
+SERVER_PORT = 8080
+SERVER_URL = f'http://{SERVER_HOST}:{SERVER_PORT}'
 RETRY_INTERVAL = 5  # Seconds between retries
+
+# Test configuration
+TEST_USER_ID = "rhino_user_" + str(uuid.uuid4())[:8]
+TEST_FILE_PATH = "/path/to/current_rhino_file.3dm"
 
 # Add constant for annotation layer
 ANNOTATION_LAYER = "MCP_Annotations"
@@ -82,84 +88,137 @@ def log_message(message):
     except Exception as e:
         Rhino.RhinoApp.WriteLine("Failed to write to log file: {0}".format(str(e)))
 
+def create_session():
+    """Create a new session with the remote server"""
+    try:
+        import urllib2
+        import json
+        
+        # Create the request data
+        request_data = {
+            "user_id": TEST_USER_ID,
+            "file_path": TEST_FILE_PATH
+        }
+        
+        # Create the HTTP request
+        req = urllib2.Request(
+            SERVER_URL + "/sessions/create",
+            data=json.dumps(request_data),
+            headers={'Content-Type': 'application/json'}
+        )
+        
+        # Send the request
+        response = urllib2.urlopen(req)
+        response_data = json.loads(response.read())
+        
+        log_message("Session created successfully: {0}".format(response_data))
+        return response_data
+        
+    except Exception as e:
+        log_message("Failed to create session: {0}".format(str(e)))
+        return None
+
 class RhinoMCPClient:
-    def __init__(self, host=SERVER_HOST):
-        self.host = host
+    def __init__(self):
         self.ws = None
         self.running = False
         self.thread = None
         self.retry_count = 0
         self.last_error = None
+        self.session_id = None
+        self.instance_id = None
+        self.websocket_url = None
 
     def on_message(self, ws, message):
         """Handle incoming messages from the server"""
         try:
-            command = json.loads(message)
-            log_message(f"Received command: {command}")
+            data = json.loads(message)
+            log_message("Received message: {0}".format(data))
             
-            # Execute the command and get response
-            response = self.execute_command(command)
+            message_type = data.get("type")
             
-            # Add the request ID to the response
-            if 'id' in command:
-                response['id'] = command['id']
-            
-            # Send response back to server
-            ws.send(json.dumps(response))
-            log_message("Response sent successfully")
-            
+            if message_type == "handshake":
+                # Handle initial handshake
+                self.session_id = data.get("session_id")
+                self.instance_id = data.get("instance_id")
+                log_message("Handshake received - Session: {0}, Instance: {1}".format(
+                    self.session_id, self.instance_id))
+                
+            elif message_type == "command":
+                # Handle command from server
+                tool = data.get("tool")
+                params = data.get("params", {})
+                correlation_id = data.get("correlation_id")
+                
+                # Execute the command
+                result = self.execute_command(tool, params)
+                
+                # Send response back with correlation ID
+                response = {
+                    "type": "response",
+                    "correlation_id": correlation_id,
+                    "status": result.get("status", "success"),
+                    "result": result
+                }
+                
+                ws.send(json.dumps(response))
+                log_message("Response sent for correlation_id: {0}".format(correlation_id))
+                
+            elif message_type == "heartbeat":
+                # Respond to heartbeat
+                heartbeat_response = {
+                    "type": "heartbeat",
+                    "timestamp": datetime.now().isoformat()
+                }
+                ws.send(json.dumps(heartbeat_response))
+                log_message("Heartbeat response sent")
+                
         except json.JSONDecodeError as e:
-            log_message(f"Invalid JSON received: {str(e)}")
-            error_response = {"status": "error", "message": "Invalid JSON format"}
-            ws.send(json.dumps(error_response))
+            log_message("Invalid JSON received: {0}".format(str(e)))
         except Exception as e:
-            log_message(f"Error handling message: {str(e)}")
+            log_message("Error handling message: {0}".format(str(e)))
             traceback.print_exc()
-            error_response = {"status": "error", "message": str(e)}
-            ws.send(json.dumps(error_response))
 
     def on_error(self, ws, error):
         """Handle WebSocket errors"""
         self.last_error = str(error)
-        log_message(f"WebSocket error: {str(error)}")
-        if hasattr(ws, 'headers'):
-            log_message(f"WebSocket headers: {ws.headers}")
-        if hasattr(ws, 'status'):
-            log_message(f"WebSocket status: {ws.status}")
+        log_message("WebSocket error: {0}".format(str(error)))
 
     def on_close(self, ws, close_status_code, close_msg):
         """Handle WebSocket connection close"""
-        log_message(f"WebSocket connection closed. Code: {close_status_code}, Message: {close_msg}")
+        log_message("WebSocket connection closed. Code: {0}, Message: {1}".format(
+            close_status_code, close_msg))
         self.running = False
         # Try to reconnect
-        if self.retry_count < 100:  # Limit retries to prevent infinite loop
+        if self.retry_count < 10:  # Limit retries
             self.retry_count += 1
-            log_message(f"Retrying connection in {RETRY_INTERVAL} seconds... (Attempt {self.retry_count})")
+            log_message("Retrying connection in {0} seconds... (Attempt {1})".format(
+                RETRY_INTERVAL, self.retry_count))
             time.sleep(RETRY_INTERVAL)
             self.connect()
 
     def on_open(self, ws):
         """Handle WebSocket connection open"""
         log_message("WebSocket connection established")
-        if hasattr(ws, 'headers'):
-            log_message(f"WebSocket headers: {ws.headers}")
         self.running = True
         self.retry_count = 0  # Reset retry count on successful connection
 
     def connect(self):
         """Connect to the WebSocket server"""
         try:
-            protocol = "wss" if USE_SSL else "ws"
-            uri = f"{protocol}://{self.host}"
-            log_message(f"Connecting to {uri}...")
-
-            headers = [
-                f"Origin: https://{self.host}"
-            ]
+            # First, create a session
+            if not self.websocket_url:
+                session_data = create_session()
+                if not session_data:
+                    raise Exception("Failed to create session")
+                
+                self.websocket_url = session_data["websocket_url"]
+                log_message("Got WebSocket URL: {0}".format(self.websocket_url))
+            
+            log_message("Connecting to {0}...".format(self.websocket_url))
 
             self.ws = websocket.WebSocketApp(
-                uri,
-                header=headers,
+                self.websocket_url,
                 on_message=self.on_message,
                 on_error=self.on_error,
                 on_close=self.on_close,
@@ -175,16 +234,18 @@ class RhinoMCPClient:
             while not self.running and time.time() - start_time < timeout:
                 time.sleep(0.1)
                 if self.last_error:
-                    log_message(f"Connection error while waiting: {self.last_error}")
+                    log_message("Connection error while waiting: {0}".format(self.last_error))
 
             if not self.running:
                 raise Exception("Failed to establish WebSocket connection within timeout")
 
             return True
         except Exception as e:
-            log_message(f"Failed to connect: {str(e)}")
+            log_message("Failed to connect: {0}".format(str(e)))
             if self.last_error:
-                log_message(f"Last error: {self.last_error}")
+                log_message("Last error: {0}".format(self.last_error))
+            # Reset websocket_url to force session recreation on retry
+            self.websocket_url = None
             return False
 
     def stop(self):
@@ -195,37 +256,34 @@ class RhinoMCPClient:
             self.thread.join(timeout=1)
         self.running = False
 
-    def execute_command(self, command):
+    def execute_command(self, tool, params):
         """Execute a command received from the server"""
         try:
-            command_type = command.get("type")
-            params = command.get("params", {})
-            
-            if command_type == "get_rhino_scene_info":
+            if tool == "get_rhino_scene_info":
                 return self._get_rhino_scene_info(params)
-            elif command_type == "_rhino_create_cube":
+            elif tool == "_rhino_create_cube":
                 return self._create_cube(params)
-            elif command_type == "get_rhino_layers":
+            elif tool == "get_rhino_layers":
                 return self._get_rhino_layers()
-            elif command_type == "execute_code":
+            elif tool == "execute_code":
                 return self._execute_rhino_code(params)
-            elif command_type == "get_rhino_objects_with_metadata":
+            elif tool == "get_rhino_objects_with_metadata":
                 return self._get_rhino_objects_with_metadata(params)
-            elif command_type == "capture_rhino_viewport":
+            elif tool == "capture_rhino_viewport":
                 return self._capture_rhino_viewport(params)
-            elif command_type == "add_rhino_object_metadata":
+            elif tool == "add_rhino_object_metadata":
                 return self._add_rhino_object_metadata(
                     params.get("object_id"), 
                     params.get("name"), 
                     params.get("description")
                 )
-            elif command_type == "get_rhino_selected_objects":
+            elif tool == "get_rhino_selected_objects":
                 return self._get_rhino_selected_objects(params)
             else:
-                return {"status": "error", "message": "Unknown command type"}
+                return {"status": "error", "message": "Unknown tool: {0}".format(tool)}
                 
         except Exception as e:
-            log_message(f"Error executing command: {str(e)}")
+            log_message("Error executing command: {0}".format(str(e)))
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
@@ -717,9 +775,11 @@ client = RhinoMCPClient()
 
 try:
     if client.connect():
-        log_message(f"RhinoMCP WebSocket client script loaded. Connected to ws://{SERVER_HOST}")
+        log_message("RhinoMCP WebSocket client script loaded. Connected to remote server at {0}".format(SERVER_URL))
+        log_message("Session ID: {0}".format(client.session_id))
+        log_message("Instance ID: {0}".format(client.instance_id))
         log_message("To stop the client, close Rhino or interrupt the script.")
     else:
         log_message("Failed to connect to WebSocket server")
 except Exception as e:
-    log_message(f"Failed to start WebSocket client: {str(e)}") 
+    log_message("Failed to start WebSocket client: {0}".format(str(e))) 
