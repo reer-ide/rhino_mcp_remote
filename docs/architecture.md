@@ -1,12 +1,12 @@
 # RhinoMCP System Architecture Design Document
 
-**Version**: 1.0  
-**Date**: July 2025  
+**Version**: 2.0  
+**Date**: July 2025
 **Status**: Beta Development
 
 ## Executive Summary
 
-RhinoMCP is a remote Model Context Protocol (MCP) server that enables AI-assisted CAD modeling by connecting host applications (like Claude Desktop) with users' local Rhino CAD instances. This document outlines the system architecture for the beta launch on Google Cloud Run.
+RhinoMCP is a remote Model Context Protocol (MCP) server that enables AI-assisted CAD modeling by connecting host applications (like Claude Desktop) with users' local Rhino CAD instances. This document outlines the system architecture for the beta launch on Google Cloud Run, featuring persistent sessions and improved UX flow with separated initialization and file linking.
 
 ## System Overview
 
@@ -15,87 +15,91 @@ RhinoMCP is a remote Model Context Protocol (MCP) server that enables AI-assiste
 ```
 ┌─────────────────┐         ┌──────────────────┐         ┌─────────────────┐
 │  Host Apps      │         │  RhinoMCP Server │         │  Rhino Plugin   │
-│  (Claude, etc)  │◄───────►│  (Cloud Run)     │◄───────►│  (Local CAD)    │
+│  (reer's IDE)   │◄───────►│  (Cloud Run)     │◄───────►│  (Local CAD)    │
 └─────────────────┘         └──────────────────┘         └─────────────────┘
         │                            │                            │
         │                            ▼                            │
         │                   ┌──────────────────┐                │
         │                   │   Redis Cluster   │                │
-        │                   │  (Memorystore)    │                │
+        │                   │  (Persistent     │                │
+        │                   │   Sessions)      │                │
         │                   └──────────────────┘                │
         │                            │                            │
         │                            ▼                            │
         │                   ┌──────────────────┐                │
         └──────────────────►│   PostgreSQL     │◄───────────────┘
-                           │  (Cloud SQL)      │
+                           │  (User Auth &     │
+                           │   File Mapping)   │
                            └──────────────────┘
 ```
 
 ### Core Components
 
-1. **RhinoMCP Server** (Node.js/TypeScript on Cloud Run)
+1. **RhinoMCP Server** (FastMCP/Python on Cloud Run)
    - WebSocket server for bidirectional communication
    - MCP protocol implementation
-   - Authentication and session management
+   - Persistent session management
+   - License-based authentication
    - Message routing for multiple CAD instances
 
 2. **Redis Cluster** (Google Memorystore)
-   - WebSocket session state storage
+   - Persistent session state storage
+   - License-to-user mapping
+   - File-to-session associations
    - Real-time message pub/sub
-   - Connection mapping (user → instances)
-   - Temporary operation cache
+   - Auto-reconnection metadata
 
 3. **PostgreSQL Database** (Cloud SQL)
-   - User profiles and authentication data
-   - CAD project metadata
+   - User profiles and license registrations
+   - CAD project metadata and file associations
    - Operation history and audit logs
-   - Configuration and settings
+   - Persistent connection configurations
 
-4. **Rhino Plugin** (Client-side)
+4. **Rhino Plugin** (Client-side C#/.NET)
    - WebSocket client implementation
    - MCP message handling
    - RhinoScriptSyntax command execution
-   - Local state management
+   - Local authorization storage
+   - Auto-reconnection logic
 
-## Technical Stack
+## User Experience Flow Architecture
 
-### Backend Technologies
-- **Runtime**: Node.js 20.x with TypeScript 5.x
-- **Framework**: FastMCP for MCP implementation
-- **WebSocket**: ws library (production-ready, 100K connections)
-- **Authentication**: JWT with OAuth 2.0
-- **ORM**: Prisma for PostgreSQL
-- **Redis Client**: ioredis with clustering support
-- **Logging**: Winston with Google Cloud Logging
-- **Monitoring**: Prometheus metrics export
+### Phase 1: One-Time Initialization (Plugin Setup)
 
-### Infrastructure
-- **Container**: Docker with multi-stage builds
-- **Orchestration**: Google Cloud Run (auto-scaling)
-- **Load Balancer**: Google Cloud Load Balancing
-- **CDN**: Cloud CDN for static assets
-- **Secrets**: Google Secret Manager
+This phase separates plugin installation and authorization from file linking, providing a smoother onboarding experience.
 
-## Data Flow Architecture
-
-### Connection Establishment Flow
-```
-1. User starts host app (reer's IDE webapp)
-2. User clicks "Link with Rhino file" 
-3. Browser file explorer opens → user selects .3dm file
-4. Host app backend connects to remote MCP server
-5. Remote server creates a "connection session" and returns connection details
-6. Host app attempts to open Rhino file (if not already open)
-7. Host app calls Rhino plugin's _start_connection command with connection details
-8. Rhino plugin shows authorization UI with connection details
-9. User authorizes → plugin establishes bidirectional connection to remote server
-10. Remote server validates connection and updates session state
-11. Remote server notifies host app of successful connection
-12. Host app shows success and enables CAD operations
-
+```mermaid
+sequenceDiagram
+    participant User
+    participant HostApp as Host App<br/>(reer's IDE)
+    participant RemoteServer as Remote MCP Server<br/>(Cloud Run)
+    participant RhinoPlugin as Rhino Plugin<br/>(Local)
+    
+    Note over User,RhinoPlugin: One-time setup per machine
+    
+    User->>HostApp: Go to "Connect Rhino" settings
+    HostApp->>HostApp: Generate unique license_id
+    HostApp->>User: Show plugin installation guide
+    User->>User: Install Rhino plugin
+    
+    HostApp->>User: Display license_id & initialization command
+    User->>RhinoPlugin: Run initialization command with license_id
+    
+    RhinoPlugin->>RemoteServer: POST /license/register<br/>{license_id, machine_info}
+    RemoteServer->>RemoteServer: Store license registration
+    RemoteServer->>RhinoPlugin: {auth_token, user_id}
+    
+    RhinoPlugin->>RhinoPlugin: Store auth locally (encrypted)
+    RhinoPlugin->>RemoteServer: WebSocket connect for registration
+    RemoteServer->>HostApp: SSE: license_registered<br/>{license_id, status}
+    
+    HostApp->>User: Show "Rhino Connected ✓"
 ```
 
-### Connection Establishment Flow diagram
+### Phase 2: File Linking (Repeatable)
+
+After initialization, linking new files becomes seamless and automatic.
+
 ```mermaid
 sequenceDiagram
     participant User
@@ -104,211 +108,378 @@ sequenceDiagram
     participant RhinoPlugin as Rhino Plugin<br/>(Local)
     participant RhinoCAD as Rhino CAD<br/>(Local)
     
-    User->>HostApp: Click "Link with Rhino file"
+    Note over User,RhinoCAD: Seamless file linking
+    
+    User->>HostApp: Click "Link new Rhino file"
     HostApp->>User: Show file explorer
     User->>HostApp: Select .3dm file
     
-    HostApp->>RemoteServer: POST /sessions/create<br/>{file_path, user_id}
-    RemoteServer->>RemoteServer: Create session & connection token
-    RemoteServer->>HostApp: {session_id, connection_token, ws_port}
+    HostApp->>RemoteServer: POST /sessions/create<br/>{file_path, user_id, license_id}
+    RemoteServer->>RemoteServer: Create persistent session
+    RemoteServer->>HostApp: {session_id, file_token, status}
     
-    HostApp->>RhinoPlugin: _start_connection<br/>{file_path, connection_token, ws_endpoint}
-    RhinoPlugin->>RhinoCAD: Open file if needed
-    RhinoPlugin->>User: Show authorization UI
+    alt Rhino already running with plugin
+        HostApp->>RemoteServer: POST /sessions/activate<br/>{session_id}
+        RemoteServer->>RhinoPlugin: Auto-connect notification
+        RhinoPlugin->>RhinoCAD: Open file if needed
+        RhinoPlugin->>RemoteServer: WebSocket connect for session
+    else Rhino not running
+        HostApp->>User: "Click to launch Rhino with file"
+        User->>RhinoCAD: Launch Rhino (opens .3dm file)
+        RhinoPlugin->>RhinoPlugin: Check for pending sessions
+        RhinoPlugin->>RemoteServer: Query pending sessions
+        RemoteServer->>RhinoPlugin: {session_id, file_path}
+        RhinoPlugin->>RemoteServer: WebSocket connect for session
+    end
     
-    User->>RhinoPlugin: Authorize connection
-    RhinoPlugin->>RemoteServer: WebSocket connect<br/>ws://server:port?token=xxx
-    RemoteServer->>RemoteServer: Validate token & establish session
-    RemoteServer->>RhinoPlugin: Connection established
+    RemoteServer->>HostApp: SSE: session_established
+    HostApp->>User: Show "File linked ✓" & enable CAD ops
+```
+
+### Phase 3: Auto-Reconnection
+
+When the host app restarts, it automatically reconnects to existing Rhino instances.
+
+```mermaid
+sequenceDiagram
+    participant HostApp as Host App<br/>(reer's IDE)
+    participant RemoteServer as Remote MCP Server<br/>(Cloud Run)
+    participant RhinoPlugin as Rhino Plugin<br/>(Local)
     
-    RemoteServer->>HostApp: SSE: connection_established<br/>{session_id, instance_id}
-    HostApp->>User: Show success & enable CAD ops
+    Note over HostApp,RhinoPlugin: App restart scenario
     
-    Note over HostApp,RhinoCAD: Bidirectional communication ready
-    HostApp->>RemoteServer: MCP Tool: create_sphere<br/>{session_id, instance_id}
-    RemoteServer->>RhinoPlugin: Forward: create_sphere
-    RhinoPlugin->>RhinoCAD: Execute command
-    RhinoCAD->>RhinoPlugin: Result
-    RhinoPlugin->>RemoteServer: Response
-    RemoteServer->>HostApp: MCP Response
+    HostApp->>HostApp: App starts up
+    HostApp->>RemoteServer: GET /sessions/active<br/>{user_id}
+    RemoteServer->>RemoteServer: Query Redis for active sessions
+    RemoteServer->>HostApp: {active_sessions: [...]}
+    
+    loop For each active session
+        HostApp->>RemoteServer: GET /sessions/{session_id}/status
+        RemoteServer->>HostApp: {status, instance_id, file_path}
+        
+        alt Rhino instance still connected
+            HostApp->>User: Show "Auto-reconnected to {file_name}"
+            Note over HostApp,RhinoPlugin: Connection already active
+        else Rhino instance disconnected
+            HostApp->>User: Show "Reconnect to {file_name}?" option
+            User->>HostApp: Click reconnect
+            HostApp->>RemoteServer: POST /sessions/{session_id}/reactivate
+            Note over RemoteServer,RhinoPlugin: Same as Phase 2 flow
+        end
+    end
 ```
 
-### Multi-Instance Message Routing
-```
-1. Host app sends MCP request with target instance_id
-2. Server looks up instance in Redis session store
-3. Server routes message to correct Rhino instance
-4. Rhino executes command and returns response
-5. Server correlates response with original request
-6. Server returns response to host app
-```
+## Data Models and Persistence
 
-### State Synchronization
-```
-1. All state changes publish to Redis pub/sub
-2. Relevant instances receive state updates
-3. Conflict resolution via timestamp ordering
-4. Periodic state snapshots to PostgreSQL
-```
-
-## Scalability Design
-
-### Horizontal Scaling Strategy
-- **Auto-scaling**: 1-10 Cloud Run instances based on:
-  - CPU utilization > 70%
-  - Concurrent connections > 80
-  - Memory usage > 80%
-- **Session Affinity**: Sticky sessions via connection ID
-- **Load Distribution**: Round-robin with health checks
-
-### Connection Limits
-- **Per Instance**: 100 concurrent WebSocket connections
-- **Per User**: 5 concurrent Rhino instances
-- **Message Size**: 1MB maximum per MCP message
-- **Timeout**: 30 minutes idle before disconnect
-
-### Performance Targets
-- **Connection Latency**: < 100ms establishment
-- **Message Latency**: < 50ms routing overhead
-- **Throughput**: 1000 messages/second per instance
-- **Availability**: 99.5% uptime for beta
-
-## Security Architecture
-
-### Authentication Flow
+### License Registration Model
 ```typescript
-// Token structure
-interface AuthToken {
-  sub: string;          // User ID
-  email: string;        // User email
-  scope: string[];      // Permissions
-  exp: number;          // Expiration timestamp
-  instance_limit: number; // Max Rhino instances
+interface LicenseRegistration {
+  license_id: string;           // Unique identifier for this machine
+  user_id: string;              // Associated user account
+  machine_fingerprint: string;  // Hardware/OS fingerprint
+  registered_at: datetime;      // Registration timestamp
+  last_seen: datetime;          // Last successful connection
+  status: 'active' | 'revoked'; // License status
+  max_concurrent_files: number; // Limit for this license
 }
 ```
 
-### Security Measures
-1. **TLS 1.3** for all WebSocket connections
-2. **JWT tokens** with 24-hour expiration
-3. **Rate limiting**: 100 requests/minute per user
-4. **Input validation** for all MCP commands
-5. **Audit logging** for sensitive operations
-
-## Error Handling
-
-### Retry Strategy
-- **Connection failures**: Exponential backoff (1s, 2s, 4s, 8s, max 60s)
-- **Message failures**: 3 retries with 1s delay
-- **Database failures**: Circuit breaker pattern
-- **Redis failures**: Fallback to local cache
-
-### Error Codes
+### Persistent Session Model
+```typescript
+interface PersistentSession {
+  session_id: string;           // Unique session identifier
+  user_id: string;              // Owner of the session
+  license_id: string;           // Associated license
+  file_path: string;            // Absolute path to .3dm file
+  file_hash: string;            // File content hash for validation
+  created_at: datetime;         // Session creation time
+  last_active: datetime;        // Last activity timestamp
+  status: 'pending' | 'active' | 'dormant' | 'expired';
+  instance_id?: string;         // Connected Rhino instance ID
+  connection_metadata: {        // Connection state info
+    websocket_port?: number;
+    last_ip?: string;
+    rhino_version?: string;
+  };
+}
 ```
-1000-1999: Authentication errors
-2000-2999: Connection errors
-3000-3999: MCP protocol errors
-4000-4999: CAD operation errors
-5000-5999: Server errors
+
+## Technical Stack
+
+### Backend Technologies
+- **Runtime**: Python 3.11+ with FastMCP framework
+- **WebSocket**: websockets library with connection pooling
+- **Authentication**: JWT with RSA256 + license-based validation
+- **ORM**: SQLAlchemy with async support for PostgreSQL
+- **Redis Client**: redis-py with cluster support
+- **Logging**: Python logging with Google Cloud Logging integration
+- **Monitoring**: Prometheus metrics with custom CAD operation tracking
+
+### Infrastructure
+- **Container**: Docker with multi-stage builds
+- **Orchestration**: Google Cloud Run (auto-scaling)
+- **Load Balancer**: Google Cloud Load Balancing with WebSocket support
+- **Storage**: Cloud Storage for file metadata cache
+- **Secrets**: Google Secret Manager for sensitive configurations
+
+## Enhanced Connection Management
+
+### License-Based Authentication
+```python
+# License validation flow
+class LicenseValidator:
+    async def validate_license(self, license_id: str, machine_fingerprint: str) -> bool:
+        # Check if license exists and is active
+        license_data = await redis.hget(f"license:{license_id}", "status")
+        if not license_data or license_data != "active":
+            return False
+        
+        # Verify machine fingerprint
+        stored_fingerprint = await redis.hget(f"license:{license_id}", "fingerprint")
+        return stored_fingerprint == machine_fingerprint
+```
+
+### Session Persistence Strategy
+```python
+# Session lifecycle management
+class SessionManager:
+    async def create_persistent_session(self, user_id: str, file_path: str, license_id: str):
+        session = PersistentSession(
+            session_id=str(uuid.uuid4()),
+            user_id=user_id,
+            license_id=license_id,
+            file_path=file_path,
+            file_hash=await self.calculate_file_hash(file_path),
+            status="pending"
+        )
+        
+        # Store in both Redis and PostgreSQL
+        await redis.hset(f"session:{session.session_id}", mapping=asdict(session))
+        await redis.expire(f"session:{session.session_id}", 86400 * 7)  # 7 days
+        await db.sessions.create(session)
+        
+        return session
+    
+    async def reactivate_session(self, session_id: str):
+        # Restore session from persistence layer
+        session_data = await redis.hgetall(f"session:{session_id}")
+        if not session_data:
+            session_data = await db.sessions.get(session_id)
+            if session_data:
+                await redis.hset(f"session:{session_id}", mapping=session_data)
+        
+        return session_data
+```
+
+### Auto-Reconnection Logic
+```csharp
+// Rhino plugin auto-reconnection
+public class AutoReconnectionManager
+{
+    public async Task<bool> CheckPendingSessions()
+    {
+        var licenseId = GetStoredLicenseId();
+        if (string.IsNullOrEmpty(licenseId)) return false;
+        
+        var response = await httpClient.GetAsync($"/sessions/pending?license_id={licenseId}");
+        var pendingSessions = await response.Content.ReadAsAsync<List<PendingSession>>();
+        
+        foreach (var session in pendingSessions)
+        {
+            if (IsFileCurrentlyOpen(session.FilePath))
+            {
+                await ConnectToSession(session.SessionId);
+            }
+        }
+        
+        return pendingSessions.Any();
+    }
+}
+```
+
+## Scalability and Performance
+
+### Connection Limits (Updated)
+- **Per License**: 3 concurrent file sessions
+- **Per Instance**: 100 concurrent WebSocket connections
+- **Session TTL**: 7 days dormant, 30 days maximum
+- **Message Size**: 1MB maximum per MCP message
+- **Reconnection Timeout**: 60 seconds with exponential backoff
+
+### Performance Targets
+- **License Validation**: < 50ms lookup time
+- **Session Creation**: < 200ms end-to-end
+- **Auto-Reconnection**: < 5 seconds for active sessions
+- **File Hash Calculation**: < 100ms for files up to 100MB
+- **Availability**: 99.7% uptime with graceful degradation
+
+## Security Enhancements
+
+### License-Based Security Model
+```typescript
+interface SecurityContext {
+  license_id: string;           // Hardware-bound license
+  user_id: string;              // User account
+  machine_fingerprint: string;  // Device identification
+  session_capabilities: {       // Per-session permissions
+    max_file_size: number;
+    allowed_operations: string[];
+    rate_limits: {
+      commands_per_minute: number;
+      data_transfer_mb: number;
+    };
+  };
+}
+```
+
+### Enhanced Security Measures
+1. **Hardware-bound licensing** with machine fingerprinting
+2. **Session-scoped tokens** with automatic rotation
+3. **File integrity validation** via SHA-256 hashes
+4. **Rate limiting per license** to prevent abuse
+5. **Audit trail** for all CAD operations and file access
+6. **Encrypted local storage** for authentication data
+
+## Error Handling and Resilience
+
+### Enhanced Retry Strategy
+- **License validation failures**: 3 retries with 1s, 2s, 4s delays
+- **Session creation failures**: Exponential backoff up to 30s
+- **WebSocket disconnections**: Auto-reconnect with session restoration
+- **File access errors**: Graceful degradation with user notification
+- **Redis failures**: Fallback to PostgreSQL with eventual consistency
+
+### Error Categories and Responses
+```
+1000-1099: License and authentication errors
+1100-1199: Session management errors
+2000-2099: Connection and network errors
+3000-3099: MCP protocol errors
+4000-4099: CAD operation errors
+5000-5099: File system and I/O errors
+6000-6099: Auto-reconnection errors
 ```
 
 ## Monitoring and Observability
 
-### Key Metrics
-- **Business Metrics**:
-  - Active users
-  - CAD operations per minute
-  - Average session duration
-  - Instance utilization
+### Enhanced Metrics
+- **License Metrics**:
+  - Active licenses count
+  - License utilization rate
+  - Registration success rate
+  - Machine fingerprint conflicts
 
-- **Technical Metrics**:
-  - WebSocket connections
-  - Message latency p50/p95/p99
-  - Error rates by category
-  - Database query performance
+- **Session Metrics**:
+  - Persistent session count
+  - Session lifetime distribution
+  - Auto-reconnection success rate
+  - File-to-session ratio per user
 
-### Logging Strategy
+- **Performance Metrics**:
+  - Session creation latency
+  - Auto-reconnection latency
+  - File hash calculation time
+  - License validation time
+
+### Logging Strategy (Enhanced)
 ```typescript
-// Structured logging format
+// Enhanced structured logging
 {
   "timestamp": "2024-12-01T10:00:00Z",
   "level": "info",
   "service": "rhinomcp-server",
-  "user_id": "user123",
-  "instance_id": "rhino_001",
-  "operation": "create_sphere",
-  "duration_ms": 45,
-  "status": "success"
+  "license_id": "lic_abc123",
+  "user_id": "user_def456",
+  "session_id": "ses_ghi789",
+  "operation": "auto_reconnect",
+  "file_path": "/path/to/model.3dm",
+  "duration_ms": 1200,
+  "status": "success",
+  "metadata": {
+    "rhino_version": "8.0.23304",
+    "file_size_mb": 45.2,
+    "reconnection_attempt": 1
+  }
 }
 ```
 
-## Development Considerations
+## Implementation Phases
 
-### AI-Assisted Development
-- **Code Structure**: Modular design for easy AI comprehension
-- **Documentation**: Inline comments for context
-- **Type Safety**: Comprehensive TypeScript interfaces
-- **Testing**: Example-driven test cases for AI training
+### Phase 1: Core Persistent Sessions (Week 1-2)
+1. Implement license registration system
+2. Create persistent session storage in Redis/PostgreSQL
+3. Update session creation/management APIs
+4. Add basic auto-reconnection logic
 
-### Local Development Setup
-```bash
-# Docker Compose services
-- rhinomcp-server (port 8080)
-- redis (port 6379)
-- postgres (port 5432)
-- rhino-simulator (port 8081)
+### Phase 2: Enhanced UX Flow (Week 3-4)
+1. Separate initialization from file linking
+2. Implement SSE notifications for license registration
+3. Add auto-discovery of pending sessions
+4. Create improved plugin command interface
+
+### Phase 3: Auto-Reconnection (Week 5-6)
+1. Implement session restoration logic
+2. Add file integrity validation
+3. Create graceful error handling for disconnections
+4. Add comprehensive monitoring and logging
+
+### Phase 4: Security & Polish (Week 7-8)
+1. Implement hardware fingerprinting
+2. Add rate limiting per license
+3. Enhanced security audit trail
+4. Performance optimization and testing
+
+## Migration Strategy
+
+### From Current to New Architecture
+1. **Backward Compatibility**: Support both old and new session models during transition
+2. **Gradual Migration**: Migrate existing users to license-based system over 2 weeks
+3. **Data Migration**: Convert temporary sessions to persistent sessions where possible
+4. **Rollback Plan**: Ability to revert to old session model if needed
+
+### Database Schema Updates
+```sql
+-- New tables for enhanced architecture
+CREATE TABLE license_registrations (
+    license_id VARCHAR(255) PRIMARY KEY,
+    user_id VARCHAR(255) NOT NULL,
+    machine_fingerprint VARCHAR(255) NOT NULL,
+    registered_at TIMESTAMP DEFAULT NOW(),
+    last_seen TIMESTAMP,
+    status VARCHAR(50) DEFAULT 'active',
+    max_concurrent_files INTEGER DEFAULT 3
+);
+
+CREATE TABLE persistent_sessions (
+    session_id VARCHAR(255) PRIMARY KEY,
+    user_id VARCHAR(255) NOT NULL,
+    license_id VARCHAR(255) NOT NULL,
+    file_path TEXT NOT NULL,
+    file_hash VARCHAR(64),
+    created_at TIMESTAMP DEFAULT NOW(),
+    last_active TIMESTAMP,
+    status VARCHAR(50) DEFAULT 'pending',
+    instance_id VARCHAR(255),
+    connection_metadata JSONB
+);
 ```
-
-## Deployment Pipeline
-
-### CI/CD Workflow
-1. **Code Push** → GitHub repository
-2. **Build** → Cloud Build triggers Docker build
-3. **Test** → Automated unit and integration tests
-4. **Deploy** → Cloud Run revision deployment
-5. **Verify** → Health check and smoke tests
-6. **Rollback** → Automatic on failure
-
-### Environment Configuration
-```yaml
-# Beta environment variables
-NODE_ENV: production
-PORT: 8080
-REDIS_URL: redis://memorystore-endpoint
-DATABASE_URL: postgresql://cloudsql-endpoint
-JWT_SECRET: (from Secret Manager)
-MAX_CONNECTIONS_PER_INSTANCE: 100
-MAX_INSTANCES_PER_USER: 5
-```
-
-## Migration and Rollback
-
-### Database Migrations
-- **Tool**: Prisma Migrate
-- **Strategy**: Forward-only migrations
-- **Rollback**: New migration to revert changes
-- **Testing**: Migration dry-run in staging
-
-### Service Rollback
-- **Cloud Run**: Instant traffic shift to previous revision
-- **Database**: Point-in-time recovery within 7 days
-- **Redis**: Backup every 6 hours
 
 ## Future Considerations
 
-### Post-Beta Enhancements
-1. **Multi-region deployment** for global latency optimization
-2. **Kubernetes migration** for advanced orchestration
-3. **GraphQL API** for complex queries
-4. **WebRTC** for direct peer-to-peer CAD streaming
-5. **AI model integration** for intelligent command suggestions
+### Advanced Features (Post-Beta)
+1. **Multi-machine licensing** for enterprise users
+2. **Real-time collaboration** on Rhino files
+3. **Cloud file synchronization** with version control
+4. **AI-powered session management** with usage prediction
+5. **Advanced caching** for frequently accessed file operations
 
-### Technical Debt Items
-1. Implement connection pooling optimization
-2. Add comprehensive integration test suite
-3. Enhance monitoring with distributed tracing
-4. Implement advanced caching strategies
-5. Add support for CAD file streaming
+### Technical Debt and Improvements
+1. **WebSocket connection pooling** optimization
+2. **File streaming** for large .3dm files
+3. **Distributed session management** across regions
+4. **Advanced monitoring** with distributed tracing
+5. **Performance profiling** and optimization tools
 
 ---
 
-**Document Maintenance**: This architecture document should be updated with each significant system change. All modifications require team review and approval.
+**Document Maintenance**: This architecture document should be updated with each significant system change. All modifications require team review and approval. Version 2.0 reflects the enhanced persistent session architecture with improved UX flow.

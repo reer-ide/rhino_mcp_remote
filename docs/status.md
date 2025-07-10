@@ -1,74 +1,232 @@
-# RhinoMCP MVP - Phase 1 Status Report
+# RhinoMCP Development Status
 
-**Last Updated:** 2025-07-05
+**Last Updated**: December 2024  
+**Phase**: Architecture Enhancement - Persistent Sessions & Improved UX
 
-This document tracks the progress, issues, and completed items for Phase 1 of the RhinoMCP Remote Server MVP (Python/FastMCP implementation).
+## Current Development Status
 
-## Progress Summary
+### ✅ Completed Components
 
-| Category                        | Status        | Notes                                    |
-| ------------------------------- | ------------- | ---------------------------------------- |
-| 1. Project Initialization       | `Completed` | All basic setup tasks completed successfully |
-| 2. FastMCP HTTP Server          | `Completed` | Basic FastMCP HTTP server implemented and tested |
-| 3. Google Cloud Integration     | `Not Started` | GCP project `reer-remote-rhinomcp` created |
-| 4. Docker Development Env       | `Not Started` |                                          |
-| 5. Cloud Run Deployment Prep    | `Not Started` |                                          |
+#### Core Infrastructure
+- **Remote MCP Server**: FastMCP-based server with WebSocket support
+- **Basic Connection Manager**: Session creation and WebSocket handling
+- **Rhino Plugin WebSocket Client**: Full implementation with command handling
+- **Basic Command System**: Ping, get_rhino_info, create_cube, create_sphere, get_document_info
+- **Development Tools**: Test client and comprehensive testing documentation
 
-## Current Focus / In-Progress
+#### Previous Architecture (v1.0)
+- Temporary session creation (10-minute TTL)
+- Direct file linking with immediate authorization
+- Basic WebSocket communication
+- Simple command routing
 
-*   **Next:** Ready to move to Google Cloud integration (Task 3.1-3.3)
+### 🔄 In Progress - Architecture v2.0 Enhancement
 
-## Blockers / Issues
+#### Phase 1: Core Persistent Sessions (Week 1-2)
+- [ ] **License Registration System**
+  - New `/license/register` endpoint
+  - Machine fingerprinting implementation
+  - License validation and storage in Redis/PostgreSQL
+  
+- [ ] **Persistent Session Storage**
+  - Enhanced session model with file associations
+  - Redis + PostgreSQL dual storage
+  - Session lifecycle management (7-day dormant, 30-day max)
+  
+- [ ] **Updated APIs**
+  - `/sessions/create` with license_id parameter
+  - `/sessions/active` for querying user sessions
+  - `/sessions/{id}/reactivate` for reconnection
 
-*   *(No blockers identified)*
+#### Phase 2: Enhanced UX Flow (Week 3-4)
+- [ ] **Separated Initialization Flow**
+  - One-time plugin setup with license_id
+  - SSE notifications for license registration status
+  - Persistent local authentication storage
+  
+- [ ] **Improved File Linking**
+  - Seamless file linking after initialization
+  - Auto-discovery of pending sessions
+  - Smart Rhino launch integration
+  
+- [ ] **Plugin Command Interface**
+  - Enhanced RhinoMCPServerCommand with new options
+  - License initialization commands
+  - Auto-reconnection status display
 
-## Research Notes
+#### Phase 3: Auto-Reconnection (Week 5-6)
+- [ ] **Session Restoration Logic**
+  - Host app startup session discovery
+  - Automatic reconnection to active sessions
+  - Graceful handling of disconnected sessions
+  
+- [ ] **File Integrity Validation**
+  - SHA-256 hash calculation and verification
+  - File change detection and session invalidation
+  - Conflict resolution for modified files
+  
+- [ ] **Enhanced Error Handling**
+  - Comprehensive retry strategies
+  - Graceful degradation on failures
+  - User-friendly error messages
 
-*   **FastMCP SDK:** ✅ **RESEARCH COMPLETE**
-    - FastMCP 2.0 is a comprehensive Python framework for MCP servers
-    - Supports multiple transport modes: `stdio` (default), `http` (Streamable HTTP), and `sse` (Server-Sent Events)
-    - For web deployment, use `transport="http"` which runs on Uvicorn server
-    - No traditional WebSockets - uses HTTP streaming and SSE for real-time communication
-    - Built-in support for tools, resources, prompts, authentication, and custom routes
-    - Can run on any ASGI-compatible server (perfect for Cloud Run)
+#### Phase 4: Security & Polish (Week 7-8)
+- [ ] **Hardware Fingerprinting**
+  - Machine-specific license binding
+  - Device identification and validation
+  - Security audit trail implementation
+  
+- [ ] **Rate Limiting per License**
+  - Per-license operation limits
+  - Resource usage monitoring
+  - Abuse prevention mechanisms
 
-*   **Key FastMCP Features for Our Use Case:**
-    - `mcp.run(transport="http", host="0.0.0.0", port=8080)` for web deployment
-    - `@mcp.tool` decorator for defining CAD operations
-    - `@mcp.resource` for exposing CAD file data and project state
-    - Built-in session management and authentication support
-    - `@mcp.custom_route` for health checks and custom endpoints
-    - Async support with `run_async()` method
+## Architecture Changes
 
-*   **Cloud Run + FastMCP:** ✅ **VERIFIED COMPATIBLE**
-    - FastMCP HTTP transport uses Uvicorn (ASGI server) - fully compatible with Cloud Run
-    - Multiple production deployments confirmed in community
-    - Supports long-lived connections suitable for CAD operations
+### Key Improvements in v2.0
 
-## Completed Items
+1. **Separated Concerns**
+   - Plugin installation/authorization is now one-time setup
+   - File linking becomes a seamless, repeatable process
+   - Clear separation between initialization and usage
 
-### Research & Planning
-*   **2025-07-05** - GCP project `reer-remote-rhinomcp` created and SDK installed
-*   **2025-07-05** - Project planning updated for Python/FastMCP approach instead of TypeScript
-*   **2025-07-05** - Phase 1 tasks and status tracking files created in `docs/` folder
-*   **2025-07-05** - **FastMCP research completed:** Confirmed HTTP transport capabilities, web deployment compatibility, and server architecture patterns
+2. **Persistent Sessions**
+   - Sessions survive app restarts
+   - 7-day dormant period, 30-day maximum lifetime
+   - File-to-session mapping stored persistently
 
-### Project Initialization (Tasks 1.1-1.4) ✅ **COMPLETED**
-*   **2025-07-05** - **Task 1.1: Initialize Python project** - Updated `pyproject.toml` with FastMCP dependencies and proper build configuration
-*   **2025-07-05** - **Task 1.2: Install FastMCP SDK** - Added FastMCP 2.10.2 and all required dependencies (Redis, SQLAlchemy, Pydantic, etc.)
-*   **2025-07-05** - **Task 1.3: Define project structure** - Created `remote_server/` package with proper organization and `tests/` directory
-*   **2025-07-05** - **Task 1.4: Set up development tools** - Added Black, Ruff, pytest, and pre-commit configuration with proper pyproject.toml settings
+3. **License-Based Authentication**
+   - Hardware-bound licensing with machine fingerprinting
+   - Up to 3 concurrent file sessions per license
+   - Secure local storage of authentication data
 
-### Basic Server Implementation (Tasks 2.1-2.3) ✅ **COMPLETED**
-*   **2025-07-05** - **Task 2.1: Create FastMCP HTTP server** - Implemented basic server with health endpoint and proper logging
-*   **2025-07-05** - **Task 2.2: Add basic MCP tools** - Created ping tool and server info resource with proper FastMCP decorators
-*   **2025-07-05** - **Task 2.3: Implement configuration system** - Added Pydantic settings with environment variable support and sample config file
-*   **2025-07-05** - **Task 2.4: Create basic tests** - Added pytest tests for tools and resources (all 3 tests passing)
+4. **Auto-Reconnection**
+   - Host app automatically discovers existing sessions on startup
+   - Plugin auto-connects to pending sessions when Rhino starts
+   - Intelligent session restoration and validation
 
-### Technical Achievements
-*   **2025-07-05** - **Server successfully starts** - HTTP server running on port 8080 with proper FastMCP transport
-*   **2025-07-05** - **Health endpoint working** - `/health` endpoint returns proper JSON response for load balancer monitoring
-*   **2025-07-05** - **MCP protocol implemented** - Basic tools and resources working via FastMCP client/server architecture
-*   **2025-07-05** - **Tests passing** - All 3 unit tests pass successfully with proper async testing
-*   **2025-07-05** - **Dependencies installed** - All production and development dependencies resolved via uv package manager
-*   **2025-07-05** - **Code quality setup** - Black, Ruff, and pytest configured with proper settings for consistent code style 
+### User Experience Flow Changes
+
+#### Before (v1.0): Combined Flow
+```
+User clicks "Link file" → File picker → Session creation → Authorization → Connection
+(Repeated for every file, every session)
+```
+
+#### After (v2.0): Separated Flow
+```
+One-time: Install plugin → Initialize with license_id → Store auth locally
+Per file: Click "Link file" → File picker → Auto-connection (if Rhino running)
+Restart: App discovers existing sessions → Auto-reconnect or prompt user
+```
+
+## Current Implementation Progress
+
+### Remote Server (Python/FastMCP)
+- ✅ Basic WebSocket server and session management
+- ✅ MCP tool routing and response handling
+- ✅ Redis integration for session storage
+- 🔄 License registration endpoints (planned)
+- 🔄 Persistent session model (in progress)
+- 🔄 Auto-reconnection APIs (planned)
+
+### Rhino Plugin (C#/.NET)
+- ✅ WebSocket client implementation
+- ✅ Command handling and MCP integration
+- ✅ Basic authorization flow
+- 🔄 License-based authentication (planned)
+- 🔄 Persistent local storage (planned)
+- 🔄 Auto-reconnection logic (planned)
+
+### Host App Integration
+- ✅ Basic session creation APIs
+- ✅ WebSocket communication protocols
+- 🔄 License management UI (planned)
+- 🔄 Session discovery and auto-reconnect (planned)
+- 🔄 Enhanced file linking experience (planned)
+
+## Testing and Validation
+
+### Completed Testing
+- ✅ Basic WebSocket connection establishment
+- ✅ Ping command validation
+- ✅ Simple CAD operations (create_cube, create_sphere)
+- ✅ Error handling and reconnection
+
+### Planned Testing for v2.0
+- [ ] License registration and validation flow
+- [ ] Persistent session lifecycle testing
+- [ ] Auto-reconnection scenarios
+- [ ] File integrity validation
+- [ ] Multi-file session management
+- [ ] Error recovery and graceful degradation
+
+## Performance and Security Targets
+
+### Performance Goals
+- License validation: < 50ms
+- Session creation: < 200ms end-to-end
+- Auto-reconnection: < 5 seconds for active sessions
+- File hash calculation: < 100ms for files up to 100MB
+
+### Security Enhancements
+- Hardware-bound licensing with machine fingerprinting
+- Session-scoped tokens with automatic rotation
+- File integrity validation via SHA-256 hashes
+- Rate limiting per license (3 concurrent files)
+- Encrypted local storage for authentication data
+
+## Next Steps
+
+### Immediate Priorities (This Week)
+1. Implement license registration system in remote server
+2. Create persistent session storage with Redis + PostgreSQL
+3. Update connection manager for new session model
+4. Begin plugin enhancement for license-based auth
+
+### Medium Term (Next 2 Weeks)
+1. Implement separated initialization flow
+2. Create auto-reconnection logic
+3. Add file integrity validation
+4. Enhanced error handling and user experience
+
+### Long Term (Next Month)
+1. Complete security enhancements
+2. Performance optimization and monitoring
+3. Comprehensive testing and validation
+4. Documentation and deployment preparation
+
+## Known Issues and Challenges
+
+### Technical Challenges
+1. **Backward Compatibility**: Supporting both v1.0 and v2.0 during transition
+2. **File Path Handling**: Cross-platform file path normalization and validation
+3. **Session Synchronization**: Ensuring consistency between Redis and PostgreSQL
+4. **Auto-Reconnection Timing**: Balancing responsiveness with resource usage
+
+### UX Challenges
+1. **Plugin Installation**: Streamlining the one-time setup process
+2. **License Management**: Making license_id easy to use but secure
+3. **Error Communication**: Clear feedback when sessions fail or expire
+4. **File Association**: Helping users understand which files are linked
+
+## Migration Plan
+
+### Phase A: Parallel Implementation (Week 1-2)
+- Implement v2.0 alongside existing v1.0 system
+- Add feature flags for gradual rollout
+- Ensure backward compatibility
+
+### Phase B: Gradual Migration (Week 3-4)
+- Migrate existing users to license-based system
+- Convert temporary sessions to persistent where possible
+- Monitor for issues and rollback capability
+
+### Phase C: Full Transition (Week 5-6)
+- Complete migration to v2.0 architecture
+- Remove v1.0 legacy code
+- Full feature enablement and optimization
+
+---
+
+**Status Reports**: This document is updated weekly with progress on the persistent session architecture implementation. 

@@ -1,5 +1,6 @@
 """Tools for interacting with Rhino through WebSocket connection."""
-from fastmcp import Context, Image
+from fastmcp import Context
+from fastmcp.utilities.types import Image
 import logging
 from typing import Dict, Any, List, Optional
 import json
@@ -31,6 +32,7 @@ class RhinoTools:
         self.app.tool()(self.execute_rhino_code)
         self.app.tool()(self.get_rhino_selected_objects)
         self.app.tool()(self.look_up_RhinoScriptSyntax)
+        self.app.tool()(self.ping)
     
     async def get_rhino_scene_info(self, ctx: Context, session_id: str) -> str:
         """Get basic information about the current Rhino scene.
@@ -445,3 +447,12 @@ def add_rhino_object_metadata(obj_id, name=None, description=None):
         except Exception as e:
             logger.error(f"Error looking up RhinoScriptSyntax documentation: {str(e)}")
             return f"Error fetching documentation: {str(e)}"
+        
+    async def ping(self, ctx: Context, session_id: str) -> str:
+        """Ping the Rhino session to check if it is connected."""
+        try:
+            result = await self.connection_manager.send_to_rhino(session_id, "ping")
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            logger.error(f"Error pinging Rhino session {session_id}: {str(e)}")
+            return f"Error pinging Rhino: {str(e)}"
