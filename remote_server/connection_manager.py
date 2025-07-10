@@ -198,8 +198,9 @@ class ConnectionManager:
 
     # Enhanced Session Management
     
-    async def create_persistent_session(self, user_id: str, file_path: str, license_id: str) -> PersistentSession:
-        """Create a new persistent session with file association"""
+    async def create_persistent_session(self, user_id: str, file_path: str, license_id: str, 
+                                       file_hash: str = None, file_size: int = 0) -> PersistentSession:
+        """Create a new persistent session with client-provided file information"""
         await self._init_redis()
         
         # Validate license
@@ -212,8 +213,10 @@ class ConnectionManager:
         if len(active_sessions) >= license_data.max_concurrent_files:
             raise ValueError(f"Maximum concurrent sessions ({license_data.max_concurrent_files}) reached for license {license_id}")
         
-        # Calculate file hash for integrity validation
-        file_hash = await self._calculate_file_hash(file_path)
+        # Validate file hash format if provided
+        if file_hash and not self._validate_file_hash_format(file_hash):
+            logger.warning(f"Invalid file hash format provided for session creation")
+            file_hash = None
         
         session_id = str(uuid.uuid4())
         websocket_port = await self._allocate_port()
@@ -229,9 +232,10 @@ class ConnectionManager:
             expires_at=datetime.now() + timedelta(seconds=self.session_max_ttl),
             websocket_port=websocket_port,
             connection_metadata={
-                "file_size": await self._get_file_size(file_path),
+                "file_size": file_size,
                 "created_by": "host_app",
-                "license_tier": license_data.tier
+                "license_tier": license_data.tier,
+                "file_hash_provided": bool(file_hash)
             }
         )
         
@@ -306,45 +310,28 @@ class ConnectionManager:
 
     # File Integrity Methods
     
-    async def _calculate_file_hash(self, file_path: str) -> Optional[str]:
-        """Calculate SHA-256 hash of file for integrity validation"""
+    def _validate_file_hash_format(self, file_hash: str) -> bool:
+        """Validate file hash format (SHA-256 should be 64 hex characters)"""
+        if not file_hash:
+            return False
+        if len(file_hash) != 64:
+            return False
         try:
-            import aiofiles
-            hash_sha256 = hashlib.sha256()
-            
-            async with aiofiles.open(file_path, "rb") as f:
-                async for chunk in f:
-                    hash_sha256.update(chunk)
-            
-            return hash_sha256.hexdigest()
-        except Exception as e:
-            logger.warning(f"Failed to calculate file hash for {file_path}: {e}")
-            return None
-    
-    async def _get_file_size(self, file_path: str) -> int:
-        """Get file size in bytes"""
-        try:
-            import aiofiles.os
-            stat = await aiofiles.os.stat(file_path)
-            return stat.st_size
-        except Exception as e:
-            logger.warning(f"Failed to get file size for {file_path}: {e}")
-            return 0
+            int(file_hash, 16)
+            return True
+        except ValueError:
+            return False
     
     async def validate_file_integrity(self, session_id: str) -> bool:
-        """Validate that the file hasn't changed since session creation"""
+        """Validate file integrity - now delegated to client side"""
         session = await self.get_session(session_id)
-        if not session or not session.file_hash:
-            return True  # Can't validate, assume OK
-        
-        current_hash = await self._calculate_file_hash(session.file_path)
-        if current_hash != session.file_hash:
-            logger.warning(f"File integrity check failed for session {session_id}")
-            # Mark session as expired due to file change
-            await self._expire_session(session_id, reason="file_modified")
+        if not session:
             return False
         
-        return True
+        # Since we can't access client files, we rely on client-side validation
+        # The client should report file status changes via file_status_update messages
+        logger.info(f"File integrity validation requested for session {session_id} - delegated to client")
+        return True  # Trust client-side validation
 
     # Legacy compatibility methods (keeping existing interface)
     

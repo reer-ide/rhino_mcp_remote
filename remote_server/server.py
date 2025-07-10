@@ -250,12 +250,14 @@ async def generate_license_key(request: Request) -> JSONResponse:
 
 @mcp.custom_route("/sessions/create", methods=["POST"])
 async def create_session(request: Request) -> JSONResponse:
-    """Create a new persistent session"""
+    """Create a new persistent session with client-provided file information"""
     try:
         data = await request.json()
         user_id = data.get("user_id") 
         file_path = data.get("file_path")
         license_id = data.get("license_id")
+        file_hash = data.get("file_hash")  # Client-provided file hash
+        file_size = data.get("file_size", 0)  # Client-provided file size
         
         if not user_id or not file_path:
             return JSONResponse(
@@ -265,7 +267,9 @@ async def create_session(request: Request) -> JSONResponse:
         
         # Choose session creation method based on whether license_id is provided
         if license_id:
-            session = await connection_manager.create_persistent_session(user_id, file_path, license_id)
+            session = await connection_manager.create_persistent_session(
+                user_id, file_path, license_id, file_hash, file_size
+            )
         else:
             # Legacy compatibility - create session without explicit license
             session = await connection_manager.create_session(user_id, file_path)

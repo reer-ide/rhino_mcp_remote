@@ -98,7 +98,7 @@ sequenceDiagram
 
 ### Phase 2: File Linking (Repeatable)
 
-After initialization, linking new files becomes seamless and automatic.
+After initialization, linking new files includes file opening, plugin loading, and session creation.
 
 ```mermaid
 sequenceDiagram
@@ -108,35 +108,98 @@ sequenceDiagram
     participant RhinoPlugin as Rhino Plugin<br/>(Local)
     participant RhinoCAD as Rhino CAD<br/>(Local)
     
-    Note over User,RhinoCAD: Seamless file linking
+    Note over User,RhinoCAD: Enhanced file linking with plugin management
     
     User->>HostApp: Click "Link new Rhino file"
     HostApp->>User: Show file explorer
     User->>HostApp: Select .3dm file
     
+    Note over HostApp,RhinoCAD: Step 1: Ensure file is open
+    alt File not currently open in Rhino
+        HostApp->>RhinoCAD: Launch Rhino with file<br/>(via /runscript command-line)
+        Note right of HostApp: "Rhino.exe" /runscript="_-RunPythonScript (plugin_loader.py)" "file.3dm"
+        RhinoCAD->>RhinoCAD: Open .3dm file
+    else File already open
+        Note over RhinoCAD: File already loaded
+    end
+    
+    Note over HostApp,RhinoPlugin: Step 2: Ensure plugin is loaded
+    HostApp->>RhinoPlugin: Check plugin status
+    alt Plugin not loaded
+        HostApp->>RhinoPlugin: Load RhinoMCP plugin
+        RhinoPlugin->>RhinoPlugin: Initialize plugin components
+        RhinoPlugin->>RhinoPlugin: Restore stored authentication
+    else Plugin already loaded
+        Note over RhinoPlugin: Plugin ready
+    end
+    
+    Note over HostApp,RemoteServer: Step 3: Create session
+    RhinoPlugin->>RhinoPlugin: Calculate file hash locally
     HostApp->>RemoteServer: POST /sessions/create<br/>{file_path, user_id, license_id}
     RemoteServer->>RemoteServer: Create persistent session
     RemoteServer->>HostApp: {session_id, file_token, status}
     
-    alt Rhino already running with plugin
-        HostApp->>RemoteServer: POST /sessions/activate<br/>{session_id}
-        RemoteServer->>RhinoPlugin: Auto-connect notification
-        RhinoPlugin->>RhinoCAD: Open file if needed
-        RhinoPlugin->>RemoteServer: WebSocket connect for session
-    else Rhino not running
-        HostApp->>User: "Click to launch Rhino with file"
-        User->>RhinoCAD: Launch Rhino (opens .3dm file)
-        RhinoPlugin->>RhinoPlugin: Check for pending sessions
-        RhinoPlugin->>RemoteServer: Query pending sessions
-        RemoteServer->>RhinoPlugin: {session_id, file_path}
-        RhinoPlugin->>RemoteServer: WebSocket connect for session
-    end
+    Note over RhinoPlugin,RemoteServer: Step 4: Establish connection
+    RhinoPlugin->>RemoteServer: WebSocket connect for session<br/>{session_id, file_hash, file_size}
+    RemoteServer->>RhinoPlugin: Session established
+    RhinoPlugin->>RhinoPlugin: Register file with FileIntegrityManager
     
     RemoteServer->>HostApp: SSE: session_established
     HostApp->>User: Show "File linked ✓" & enable CAD ops
 ```
 
-### Phase 3: Auto-Reconnection
+### Phase 3: Opening Already Linked File (Project Cards)
+
+When users click on project cards in the host app, the system opens the file and re-establishes connection.
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant HostApp as Host App<br/>(reer's IDE)
+    participant RemoteServer as Remote MCP Server<br/>(Cloud Run)
+    participant RhinoPlugin as Rhino Plugin<br/>(Local)
+    participant RhinoCAD as Rhino CAD<br/>(Local)
+    
+    Note over User,RhinoCAD: Opening existing project
+    
+    User->>HostApp: Click project card
+    HostApp->>HostApp: Get stored file path & session_id
+    
+    Note over HostApp,RhinoCAD: Step 1: Open file if needed
+    alt File not currently open
+        HostApp->>RhinoCAD: Launch Rhino with file<br/>(via /runscript command-line)
+        Note right of HostApp: "Rhino.exe" /runscript="_-RunPythonScript (plugin_loader.py)" "stored_file.3dm"
+        RhinoCAD->>RhinoCAD: Open .3dm file
+    else File already open
+        Note over RhinoCAD: File already loaded
+    end
+    
+    Note over HostApp,RhinoPlugin: Step 2: Ensure plugin is loaded
+    HostApp->>RhinoPlugin: Check plugin status
+    alt Plugin not loaded
+        HostApp->>RhinoPlugin: Load RhinoMCP plugin
+        RhinoPlugin->>RhinoPlugin: Initialize plugin components
+        RhinoPlugin->>RhinoPlugin: Restore stored authentication
+    else Plugin already loaded
+        Note over RhinoPlugin: Plugin ready
+    end
+    
+    Note over RhinoPlugin,RemoteServer: Step 3: Validate file & re-establish connection
+    RhinoPlugin->>RhinoPlugin: Validate file integrity<br/>(check for changes/moves)
+    alt File validation passed
+        RhinoPlugin->>RemoteServer: WebSocket connect for session<br/>{session_id, current_file_hash}
+        RemoteServer->>RemoteServer: Reactivate session
+        RemoteServer->>RhinoPlugin: Session re-established
+        RemoteServer->>HostApp: SSE: session_established
+        HostApp->>User: Show "Connected to {file_name} ✓"
+    else File changed/moved/missing
+        RhinoPlugin->>HostApp: File integrity failed
+        HostApp->>User: Show "File has been modified/moved.<br/>Please re-link the file."
+        Note over HostApp,User: Redirect to Phase 2 (new file linking)
+    end
+```
+
+### Phase 4: Auto-Reconnection (App Restart)
 
 When the host app restarts, it automatically reconnects to existing Rhino instances.
 
@@ -163,8 +226,7 @@ sequenceDiagram
         else Rhino instance disconnected
             HostApp->>User: Show "Reconnect to {file_name}?" option
             User->>HostApp: Click reconnect
-            HostApp->>RemoteServer: POST /sessions/{session_id}/reactivate
-            Note over RemoteServer,RhinoPlugin: Same as Phase 2 flow
+            Note over HostApp,RhinoPlugin: Same as Phase 3 flow
         end
     end
 ```

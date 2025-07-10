@@ -5,8 +5,6 @@ Simple but functional license system for MVP/beta testing.
 
 import hashlib
 import secrets
-import platform
-import subprocess
 import json
 import uuid
 from typing import Optional, Dict, Any
@@ -25,7 +23,7 @@ class LicenseKey:
     issued_to: str
     issued_at: datetime
     expires_at: Optional[datetime]
-    max_concurrent_files: int = 3
+    max_concurrent_files: int = 10
     tier: str = "beta"  # beta, standard, pro
     features: Dict[str, bool] = None
     
@@ -162,65 +160,21 @@ class LicenseManager:
             logger.error(f"Error validating license key: {e}")
             return None
     
-    def get_machine_fingerprint(self) -> str:
-        """Generate machine fingerprint for hardware binding"""
+    def validate_machine_fingerprint(self, provided_fingerprint: str) -> bool:
+        """Validate a machine fingerprint format (basic validation)"""
+        if not provided_fingerprint:
+            return False
+            
+        # Check if it's a valid hex string (SHA-256 should be 64 characters)
+        if len(provided_fingerprint) != 64:
+            return False
+            
         try:
-            # Collect system information
-            system_info = {
-                "platform": platform.platform(),
-                "machine": platform.machine(),
-                "processor": platform.processor(),
-                "node": platform.node()
-            }
-            
-            # Try to get additional hardware info
-            try:
-                if platform.system() == "Windows":
-                    # Get CPU ID and disk serial on Windows
-                    result = subprocess.run(
-                        ["wmic", "cpu", "get", "ProcessorId", "/value"],
-                        capture_output=True, text=True, timeout=5
-                    )
-                    cpu_info = result.stdout.strip()
-                    system_info["cpu_id"] = cpu_info
-                    
-                    result = subprocess.run(
-                        ["wmic", "diskdrive", "get", "SerialNumber", "/value"],
-                        capture_output=True, text=True, timeout=5
-                    )
-                    disk_info = result.stdout.strip()
-                    system_info["disk_serial"] = disk_info
-                    
-                elif platform.system() == "Darwin":  # macOS
-                    result = subprocess.run(
-                        ["system_profiler", "SPHardwareDataType"],
-                        capture_output=True, text=True, timeout=5
-                    )
-                    system_info["hardware_info"] = result.stdout[:200]
-                    
-                elif platform.system() == "Linux":
-                    # Try to get machine-id
-                    try:
-                        with open("/etc/machine-id", "r") as f:
-                            system_info["machine_id"] = f.read().strip()
-                    except:
-                        pass
-                        
-            except Exception as e:
-                logger.warning(f"Failed to get detailed hardware info: {e}")
-            
-            # Create fingerprint hash
-            fingerprint_data = json.dumps(system_info, sort_keys=True)
-            fingerprint = hashlib.sha256(fingerprint_data.encode()).hexdigest()
-            
-            logger.info(f"Generated machine fingerprint: {fingerprint[:16]}...")
-            return fingerprint
-            
-        except Exception as e:
-            logger.error(f"Failed to generate machine fingerprint: {e}")
-            # Fallback to basic info
-            fallback_data = f"{platform.platform()}-{platform.machine()}-{platform.node()}"
-            return hashlib.sha256(fallback_data.encode()).hexdigest()
+            # Verify it's a valid hex string
+            int(provided_fingerprint, 16)
+            return True
+        except ValueError:
+            return False
 
 
 class LicenseValidator:
@@ -228,13 +182,6 @@ class LicenseValidator:
     
     def __init__(self):
         self.license_manager = LicenseManager()
-        self._cached_fingerprint = None
-    
-    def get_machine_fingerprint(self) -> str:
-        """Get cached machine fingerprint"""
-        if self._cached_fingerprint is None:
-            self._cached_fingerprint = self.license_manager.get_machine_fingerprint()
-        return self._cached_fingerprint
     
     def validate_license(self, license_key: str, machine_fingerprint: Optional[str] = None) -> tuple[bool, Optional[Dict[str, Any]]]:
         """Validate license key and optional machine fingerprint"""
@@ -244,11 +191,10 @@ class LicenseValidator:
         if not license_data:
             return False, None
         
-        # If machine fingerprint provided, validate it
+        # If machine fingerprint provided, validate its format
         if machine_fingerprint:
-            current_fingerprint = self.get_machine_fingerprint()
-            if machine_fingerprint != current_fingerprint:
-                logger.warning("Machine fingerprint mismatch")
+            if not self.license_manager.validate_machine_fingerprint(machine_fingerprint):
+                logger.warning("Invalid machine fingerprint format")
                 return False, None
         
         return True, license_data
@@ -280,8 +226,7 @@ def validate_license_cli(license_key: str) -> Dict[str, Any]:
     
     result = {
         "valid": is_valid,
-        "license_data": license_data,
-        "machine_fingerprint": validator.get_machine_fingerprint()
+        "license_data": license_data
     }
     
     return result
@@ -295,7 +240,6 @@ if __name__ == "__main__":
         print("Usage:")
         print("  python license_manager.py generate <name> [days]")
         print("  python license_manager.py validate <license_key>")
-        print("  python license_manager.py fingerprint")
         sys.exit(1)
     
     command = sys.argv[1]
@@ -329,7 +273,6 @@ if __name__ == "__main__":
         
         print(f"License Validation Result:")
         print(f"  Valid: {result['valid']}")
-        print(f"  Machine Fingerprint: {result['machine_fingerprint'][:16]}...")
         
         if result['license_data']:
             data = result['license_data']
@@ -339,11 +282,6 @@ if __name__ == "__main__":
             print(f"  Max Concurrent Files: {data.get('max_concurrent_files')}")
             print(f"  Issued At: {data.get('issued_at')}")
             print(f"  Expires At: {data.get('expires_at', 'Never')}")
-    
-    elif command == "fingerprint":
-        validator = LicenseValidator()
-        fingerprint = validator.get_machine_fingerprint()
-        print(f"Machine Fingerprint: {fingerprint}")
     
     else:
         print(f"Unknown command: {command}")
