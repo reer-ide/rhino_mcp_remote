@@ -14,6 +14,7 @@ class MockRedis:
     def __init__(self, *args, **kwargs):
         self.data: Dict[str, str] = {}
         self.hash_data: Dict[str, Dict[str, str]] = {}
+        self.set_data: Dict[str, set] = {}
         self.expiry: Dict[str, datetime] = {}
     
     async def ping(self) -> bool:
@@ -43,12 +44,34 @@ class MockRedis:
             return 1
         return 0
     
-    async def hset(self, key: str, mapping: Dict[str, str]) -> int:
-        """Mock hset method."""
-        if key not in self.hash_data:
-            self.hash_data[key] = {}
-        self.hash_data[key].update(mapping)
-        return len(mapping)
+    async def hset(self, name: str, key: Optional[str] = None, value: Optional[Any] = None, mapping: Optional[Dict[str, Any]] = None) -> int:
+        """Mock hset method that supports both key/value and mapping, like redis-py."""
+        if name not in self.hash_data:
+            self.hash_data[name] = {}
+        
+        added_count = 0
+        if mapping:
+            if key is not None or value is not None:
+                raise TypeError("hset() cannot be used with both a mapping and a key/value pair")
+            for k, v in mapping.items():
+                str_v = str(v)
+                if k not in self.hash_data[name] or self.hash_data[name][k] != str_v:
+                    added_count += 1
+                self.hash_data[name][str(k)] = str_v
+            return added_count
+
+        if key is not None and value is not None:
+            str_value = str(value)
+            is_new_field = key not in self.hash_data[name]
+            if is_new_field:
+                added_count = 1
+            self.hash_data[name][str(key)] = str_value
+            return added_count
+        
+        if key is not None:
+             raise ValueError("hset() with an odd number of args is not allowed")
+
+        raise ValueError("hset() requires a mapping or key-value pairs.")
     
     async def hget(self, key: str, field: str) -> Optional[str]:
         """Mock hget method."""
@@ -70,6 +93,43 @@ class MockRedis:
             self.expiry[key] = datetime.now() + timedelta(seconds=seconds)
             return 1
         return 0
+    
+    async def sadd(self, key: str, *values: str) -> int:
+        """Mock sadd method."""
+        if key not in self.set_data:
+            self.set_data[key] = set()
+        added = 0
+        for value in values:
+            if value not in self.set_data[key]:
+                self.set_data[key].add(value)
+                added += 1
+        return added
+    
+    async def smembers(self, key: str) -> set:
+        """Mock smembers method."""
+        return self.set_data.get(key, set())
+    
+    async def srem(self, key: str, *values: str) -> int:
+        """Mock srem method."""
+        if key not in self.set_data:
+            return 0
+        removed = 0
+        for value in values:
+            if value in self.set_data[key]:
+                self.set_data[key].remove(value)
+                removed += 1
+        return removed
+    
+    async def keys(self, pattern: str = "*") -> list:
+        """Mock keys method with basic pattern support."""
+        import fnmatch
+        all_keys = list(self.data.keys()) + list(self.hash_data.keys()) + list(self.set_data.keys())
+        
+        if pattern == "*":
+            return all_keys
+        
+        # Simple pattern matching
+        return [key for key in all_keys if fnmatch.fnmatch(key, pattern)]
     
     async def close(self):
         """Mock close method."""

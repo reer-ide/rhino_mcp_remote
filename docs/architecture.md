@@ -1,7 +1,7 @@
 # RhinoMCP System Architecture Design Document
 
 **Version**: 2.0  
-**Date**: July 2025
+**Date**: July 2025  
 **Status**: Beta Development
 
 ## Executive Summary
@@ -77,20 +77,19 @@ sequenceDiagram
     
     Note over User,RhinoPlugin: One-time setup per machine
     
-    User->>HostApp: Go to "Connect Rhino" settings
-    HostApp->>HostApp: Generate unique license_id
+    User->>HostApp: Go to "Rhino Connection" settings
     HostApp->>User: Show plugin installation guide
     User->>User: Install Rhino plugin
+
+    User->>HostApp: Click "connect rhino"
+    HostApp->>RemoteServer: POST /license/generate<br/>{issued_to, tier, max_concurrent_files, validity_days}
+    RemoteServer->>HostApp: {license_id, license_key, issued_to, tier, max_concurrent_files, issued_at, expires_at, features}
+    HostApp->>RhinoPlugin: Run ReerRegister command with {license_key, user_id(issued_to), server_url}
     
-    HostApp->>User: Display license_id & initialization command
-    User->>RhinoPlugin: Run initialization command with license_id
-    
-    RhinoPlugin->>RemoteServer: POST /license/register<br/>{license_id, machine_info}
+    RhinoPlugin->>RemoteServer: POST /license/register<br/>{license_id, user_id, machine_fingerprint}
     RemoteServer->>RemoteServer: Store license registration
-    RemoteServer->>RhinoPlugin: {auth_token, user_id}
-    
+    RemoteServer->>RhinoPlugin: Response with {license_id, etc.}
     RhinoPlugin->>RhinoPlugin: Store auth locally (encrypted)
-    RhinoPlugin->>RemoteServer: WebSocket connect for registration
     RemoteServer->>HostApp: SSE: license_registered<br/>{license_id, status}
     
     HostApp->>User: Show "Rhino Connected ✓"
@@ -137,9 +136,10 @@ sequenceDiagram
     RhinoPlugin->>RhinoPlugin: Calculate file hash locally
     HostApp->>RemoteServer: POST /sessions/create<br/>{file_path, user_id, license_id}
     RemoteServer->>RemoteServer: Create persistent session
-    RemoteServer->>HostApp: {session_id, file_token, status}
+    RemoteServer->>HostApp: {session_id, server_url, status}
     
     Note over RhinoPlugin,RemoteServer: Step 4: Establish connection
+    HostApp->>RhinoPlugin: Start MCP server with Command ReerStart with {server_url, session_id}
     RhinoPlugin->>RemoteServer: WebSocket connect for session<br/>{session_id, file_hash, file_size}
     RemoteServer->>RhinoPlugin: Session established
     RhinoPlugin->>RhinoPlugin: Register file with FileIntegrityManager

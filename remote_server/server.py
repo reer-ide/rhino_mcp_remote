@@ -13,6 +13,7 @@ from starlette.responses import JSONResponse
 
 from .config import settings
 from .connection_manager import ConnectionManager
+from .license_manager import LicenseManager
 from .tools import RhinoTools
 import asyncio
 import json
@@ -33,8 +34,25 @@ mcp = FastMCP(
         """,
     )
 
-# Create connection manager instance
+# Create and initialize managers
 connection_manager = ConnectionManager(redis_url=settings.redis_connection_url)
+license_manager = None
+
+async def initialize_managers():
+    """Initialize the managers with separate Redis connections"""
+    global license_manager
+    
+    # Initialize connection manager with its own Redis
+    await connection_manager._init_redis()
+    logger.info("ConnectionManager Redis initialized")
+    
+    # Initialize license manager with its own Redis connection
+    license_manager = LicenseManager(redis_url=settings.redis_connection_url)
+    await license_manager._init_redis()
+    logger.info("LicenseManager Redis initialized")
+    
+    # Give connection manager access to license manager for session validation
+    connection_manager.license_manager = license_manager
 
 # Initialize Rhino tools with the connection manager
 rhino_tools = RhinoTools(mcp, connection_manager)
@@ -67,8 +85,49 @@ async def cleanup_expired_sessions(request: Request) -> JSONResponse:
             status_code=500
         )
 
-# License Registration Endpoints
-
+# License Management Endpoints
+@mcp.custom_route("/license/generate", methods=["POST"])
+async def generate_license_key(request: Request) -> JSONResponse:
+    """Generate a new license key (for testing/admin purposes)"""
+    try:
+        data = await request.json()
+        issued_to = data.get("issued_to")
+        tier = data.get("tier", "beta")
+        validity_days = data.get("validity_days", 90)
+        max_concurrent_files = data.get("max_concurrent_files", 3)
+        
+        if not issued_to:
+            return JSONResponse(
+                {"error": "issued_to is required"},
+                status_code=400
+            )
+        
+        # Generate license key
+        license_key = license_manager.generate_license_key(
+            issued_to=issued_to,
+            tier=tier,
+            max_concurrent_files=max_concurrent_files,
+            validity_days=validity_days
+        )
+        
+        return JSONResponse({
+            "license_id": license_key.license_id,
+            "license_key": license_key.key,
+            "issued_to": license_key.issued_to,
+            "tier": license_key.tier,
+            "max_concurrent_files": license_key.max_concurrent_files,
+            "issued_at": license_key.issued_at.isoformat(),
+            "expires_at": license_key.expires_at.isoformat() if license_key.expires_at else None,
+            "features": license_key.features
+        })
+        
+    except Exception as e:
+        logger.error(f"Error generating license key: {e}")
+        return JSONResponse(
+            {"error": f"Failed to generate license key: {str(e)}"}, 
+            status_code=500
+        )
+    
 @mcp.custom_route("/license/register", methods=["POST"])
 async def register_license(request: Request) -> JSONResponse:
     """Register a license using a license key"""
@@ -84,10 +143,12 @@ async def register_license(request: Request) -> JSONResponse:
                 status_code=400
             )
         
-        license_registration = await connection_manager.register_license(
+        license_registration = await license_manager.register_license(
             license_key, user_id, machine_fingerprint
         )
         
+        # TODO: send a success message to notify the host app
+
         return JSONResponse({
             "status": "success",
             "license_id": license_registration.license_id,
@@ -126,11 +187,11 @@ async def validate_license(request: Request) -> JSONResponse:
         
         if license_key:
             # Validate using license key
-            is_valid, validation_license_id = await connection_manager.validate_license_key(
+            is_valid, validation_license_id = await license_manager.validate_license_key(
                 license_key, machine_fingerprint
             )
             if is_valid:
-                license_data = await connection_manager.get_license(validation_license_id)
+                license_data = await license_manager.get_license(validation_license_id)
                 return JSONResponse({
                     "status": "valid",
                     "license_id": validation_license_id,
@@ -146,9 +207,9 @@ async def validate_license(request: Request) -> JSONResponse:
                 
         elif license_id:
             # Validate using license ID (legacy method)
-            is_valid = await connection_manager.validate_license(license_id, machine_fingerprint)
+            is_valid = await license_manager.validate_license(license_id, machine_fingerprint)
             if is_valid:
-                license_data = await connection_manager.get_license(license_id)
+                license_data = await license_manager.get_license(license_id)
                 return JSONResponse({
                     "status": "valid",
                     "license_id": license_id,
@@ -179,7 +240,7 @@ async def get_license_info(request: Request) -> JSONResponse:
     """Get license information"""
     try:
         license_id = request.path_params["license_id"]
-        license_data = await connection_manager.get_license(license_id)
+        license_data = await license_manager.get_license(license_id)
         
         if not license_data:
             return JSONResponse(
@@ -201,48 +262,6 @@ async def get_license_info(request: Request) -> JSONResponse:
         logger.error(f"Error getting license info: {e}")
         return JSONResponse(
             {"error": "Failed to get license info"}, 
-            status_code=500
-        )
-
-@mcp.custom_route("/license/generate", methods=["POST"])
-async def generate_license_key(request: Request) -> JSONResponse:
-    """Generate a new license key (for testing/admin purposes)"""
-    try:
-        data = await request.json()
-        issued_to = data.get("issued_to")
-        tier = data.get("tier", "beta")
-        validity_days = data.get("validity_days", 90)
-        max_concurrent_files = data.get("max_concurrent_files", 3)
-        
-        if not issued_to:
-            return JSONResponse(
-                {"error": "issued_to is required"},
-                status_code=400
-            )
-        
-        # Generate license key
-        license_key = connection_manager.license_manager.generate_license_key(
-            issued_to=issued_to,
-            tier=tier,
-            max_concurrent_files=max_concurrent_files,
-            validity_days=validity_days
-        )
-        
-        return JSONResponse({
-            "license_id": license_key.license_id,
-            "license_key": license_key.key,
-            "issued_to": license_key.issued_to,
-            "tier": license_key.tier,
-            "max_concurrent_files": license_key.max_concurrent_files,
-            "issued_at": license_key.issued_at.isoformat(),
-            "expires_at": license_key.expires_at.isoformat() if license_key.expires_at else None,
-            "features": license_key.features
-        })
-        
-    except Exception as e:
-        logger.error(f"Error generating license key: {e}")
-        return JSONResponse(
-            {"error": f"Failed to generate license key: {str(e)}"}, 
             status_code=500
         )
 
@@ -583,6 +602,11 @@ def main():
     logger.info(f"Starting Remote Rhino MCP Server v2.0 on {settings.host}:{settings.port}")
     logger.info("Architecture: License-based persistent sessions with auto-reconnection")
     logger.info("Available Rhino tools: get_rhino_scene_info, get_rhino_layers, get_rhino_objects_with_metadata, capture_rhino_viewport, execute_rhino_code, get_rhino_selected_objects, look_up_RhinoScriptSyntax")
+    
+    # Initialize managers before starting server
+    logger.info("Initializing connection manager and license manager...")
+    asyncio.run(initialize_managers())
+    logger.info("Managers initialized successfully")
     
     try:
         mcp.run(

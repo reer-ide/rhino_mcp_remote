@@ -11,25 +11,10 @@ import redis.asyncio as redis
 from fastmcp import FastMCP
 
 # Import our new license management system
-from .license_manager import LicenseValidator, LicenseManager
-
-logger = logging.getLogger(__name__)
-
-# Import mock Redis for fallback
+from .license_manager import LicenseManager, LicenseRegistration
 from remote_server.utils.mock_redis import create_mock_redis
 
-@dataclass
-class LicenseRegistration:
-    """License registration model for hardware-bound authentication"""
-    license_id: str
-    user_id: str
-    machine_fingerprint: str
-    registered_at: datetime
-    last_seen: datetime
-    status: str = "active"  # active, revoked
-    max_concurrent_files: int = 3
-    tier: str = "beta"
-    license_key: Optional[str] = None  # Store the actual license key for reference
+logger = logging.getLogger(__name__)
 
 @dataclass
 class PersistentSession:
@@ -54,18 +39,14 @@ class PersistentSession:
 class ConnectionManager:
     def __init__(self, redis_url: str = "redis://localhost:6379"):
         self.sessions: Dict[str, PersistentSession] = {}
-        self.licenses: Dict[str, LicenseRegistration] = {}
         self.redis_url = redis_url
         self.redis_client = None
+        self.license_manager: Optional[LicenseManager] = None
         self.use_mock_redis = False
         self.websocket_servers: Dict[int, websockets.WebSocketServer] = {}
         self.base_port = 8100  # Starting port for WebSocket connections
         self.pending_responses: Dict[str, asyncio.Future] = {}  # For correlation handling
         self.host_app_notifications: Dict[str, asyncio.Queue] = {}  # For SSE notifications
-        
-        # Initialize license system
-        self.license_validator = LicenseValidator()
-        self.license_manager = LicenseManager()
         
         # Session TTL settings
         self.session_dormant_ttl = 86400 * 7  # 7 days
@@ -75,126 +56,30 @@ class ConnectionManager:
         """Initialize Redis client with fallback to mock Redis"""
         if self.redis_client is not None:
             return
-            
+        
+        logger.info(f"Attempting to connect to Redis: {self.redis_url}")
+        
         try:
             self.redis_client = redis.from_url(self.redis_url, decode_responses=True)
-            # Test the connection
-            await self.redis_client.ping()
-            logger.info("Connected to Redis successfully")
+            # Test the connection with a short timeout
+            await asyncio.wait_for(self.redis_client.ping(), timeout=5.0)
+            logger.info(f"Connected to Redis successfully: {self.redis_url}")
+            self.use_mock_redis = False
         except Exception as e:
-            logger.warning(f"Failed to connect to Redis: {e}")
-            logger.info("Using mock Redis for development")
+            logger.warning(f"Failed to connect to Redis ({self.redis_url}): {e}")
+            logger.info("Falling back to mock Redis for development")
+            
+            # Ensure we clean up the failed connection
+            if self.redis_client:
+                try:
+                    await self.redis_client.close()
+                except:
+                    pass
+            
+            # Initialize mock Redis
             self.redis_client = create_mock_redis()
             self.use_mock_redis = True
-
-    # Enhanced License Management Methods
-    
-    async def register_license(self, license_key: str, user_id: str, machine_fingerprint: str) -> LicenseRegistration:
-        """Register a license using a license key and validate it"""
-        await self._init_redis()
-        
-        # Validate the license key first
-        is_valid, license_data = self.license_validator.validate_license(license_key, machine_fingerprint)
-        if not is_valid or not license_data:
-            raise ValueError(f"Invalid license key or machine fingerprint mismatch")
-        
-        license_id = license_data["license_id"]
-        
-        # Check if license already exists
-        existing = await self.redis_client.hgetall(f"license:{license_id}")
-        if existing:
-            # Update last seen and validate machine fingerprint
-            stored_fingerprint = existing.get("machine_fingerprint")
-            if stored_fingerprint != machine_fingerprint:
-                raise ValueError("License already registered to a different machine")
-            
-            await self.redis_client.hset(f"license:{license_id}", "last_seen", datetime.now().isoformat())
-            license_registration = LicenseRegistration(
-                license_id=license_id,
-                user_id=existing["user_id"],
-                machine_fingerprint=existing["machine_fingerprint"],
-                registered_at=datetime.fromisoformat(existing["registered_at"]),
-                last_seen=datetime.now(),
-                status=existing.get("status", "active"),
-                max_concurrent_files=int(existing.get("max_concurrent_files", 3)),
-                tier=existing.get("tier", "beta"),
-                license_key=license_key
-            )
-        else:
-            # Create new license registration
-            license_registration = LicenseRegistration(
-                license_id=license_id,
-                user_id=user_id,
-                machine_fingerprint=machine_fingerprint,
-                registered_at=datetime.now(),
-                last_seen=datetime.now(),
-                max_concurrent_files=license_data.get("max_concurrent_files", 3),
-                tier=license_data.get("tier", "beta"),
-                license_key=license_key
-            )
-            
-            # Store in Redis
-            license_dict = asdict(license_registration)
-            license_dict["registered_at"] = license_registration.registered_at.isoformat()
-            license_dict["last_seen"] = license_registration.last_seen.isoformat()
-            
-            await self.redis_client.hset(f"license:{license_id}", mapping=license_dict)
-            await self.redis_client.expire(f"license:{license_id}", self.session_max_ttl)
-            
-            logger.info(f"License registered: {license_id} for user {user_id} (tier: {license_registration.tier})")
-        
-        self.licenses[license_id] = license_registration
-        return license_registration
-    
-    async def validate_license(self, license_id: str, machine_fingerprint: str) -> bool:
-        """Validate a license by ID and machine fingerprint"""
-        await self._init_redis()
-        
-        license_data = await self.redis_client.hgetall(f"license:{license_id}")
-        if not license_data:
-            return False
-        
-        if license_data.get("status") != "active":
-            return False
-        
-        stored_fingerprint = license_data.get("machine_fingerprint")
-        if stored_fingerprint != machine_fingerprint:
-            return False
-        
-        # Also validate the license key if available
-        stored_license_key = license_data.get("license_key")
-        if stored_license_key:
-            is_valid, _ = self.license_validator.validate_license(stored_license_key, machine_fingerprint)
-            return is_valid
-        
-        return True
-    
-    async def validate_license_key(self, license_key: str, machine_fingerprint: Optional[str] = None) -> tuple[bool, Optional[str]]:
-        """Validate a license key directly and return license_id"""
-        is_valid, license_data = self.license_validator.validate_license(license_key, machine_fingerprint)
-        if is_valid and license_data:
-            return True, license_data["license_id"]
-        return False, None
-    
-    async def get_license(self, license_id: str) -> Optional[LicenseRegistration]:
-        """Get license information by ID"""
-        await self._init_redis()
-        
-        license_data = await self.redis_client.hgetall(f"license:{license_id}")
-        if not license_data:
-            return None
-        
-        return LicenseRegistration(
-            license_id=license_id,
-            user_id=license_data["user_id"],
-            machine_fingerprint=license_data["machine_fingerprint"],
-            registered_at=datetime.fromisoformat(license_data["registered_at"]),
-            last_seen=datetime.fromisoformat(license_data["last_seen"]),
-            status=license_data.get("status", "active"),
-            max_concurrent_files=int(license_data.get("max_concurrent_files", 3)),
-            tier=license_data.get("tier", "beta"),
-            license_key=license_data.get("license_key")
-        )
+            logger.info("Mock Redis initialized successfully")
 
     # Enhanced Session Management
     
@@ -204,7 +89,7 @@ class ConnectionManager:
         await self._init_redis()
         
         # Validate license
-        license_data = await self.get_license(license_id)
+        license_data = await self.license_manager.get_license(license_id)
         if not license_data or license_data.status != "active":
             raise ValueError(f"Invalid or inactive license: {license_id}")
         
@@ -277,7 +162,7 @@ class ConnectionManager:
     
     async def get_pending_sessions(self, license_id: str) -> List[PersistentSession]:
         """Get pending sessions for a license (for auto-reconnection)"""
-        license_data = await self.get_license(license_id)
+        license_data = await self.license_manager.get_license(license_id)
         if not license_data:
             return []
         
@@ -342,7 +227,17 @@ class ConnectionManager:
         
         # Register temporary license
         machine_fingerprint = "legacy_fingerprint"  # In real implementation, get actual fingerprint
-        await self.register_license(legacy_license_id, user_id, machine_fingerprint)
+        
+        # This is a bit of a hack for legacy support. We generate a dummy key.
+        # In a real scenario, you might want to prevent this or handle it more gracefully.
+        dummy_license_key = self.license_manager.generate_license_key(
+            issued_to=user_id,
+            tier="legacy",
+            max_concurrent_files=1,
+            validity_days=1
+        ).key
+
+        await self.license_manager.register_license(dummy_license_key, user_id, machine_fingerprint)
         
         return await self.create_persistent_session(user_id, file_path, legacy_license_id)
     
@@ -385,7 +280,7 @@ class ConnectionManager:
                 token = query_params.get('token')
                 
                 # For persistent sessions, we need to validate against the license
-                license_data = await self.get_license(session.license_id)
+                license_data = await self.license_manager.get_license(session.license_id)
                 if not license_data or license_data.status != "active":
                     logger.warning(f"Invalid license for session {session.session_id}")
                     await websocket.close(code=1008, reason="Invalid license")
@@ -451,7 +346,8 @@ class ConnectionManager:
         except websockets.exceptions.ConnectionClosed:
             logger.info(f"Rhino instance disconnected: {session.instance_id}")
             session.status = "dormant"
-            session.websocket = None
+            if hasattr(session, 'websocket'):
+                session.websocket = None
             await self._notify_host_app(session, "connection_lost")
             
             # Update Redis with dormant status
