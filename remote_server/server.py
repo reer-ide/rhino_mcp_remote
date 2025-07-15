@@ -14,7 +14,7 @@ from starlette.responses import JSONResponse
 from .config import settings
 from .connection_manager import ConnectionManager
 from .license_manager import LicenseManager
-from .tools import RhinoTools
+from .tools._registry import ToolRegistry
 import asyncio
 import json
 
@@ -54,8 +54,9 @@ async def initialize_managers():
     # Give connection manager access to license manager for session validation
     connection_manager.license_manager = license_manager
 
-# Initialize Rhino tools with the connection manager
-rhino_tools = RhinoTools(mcp, connection_manager)
+# Initialize tool registry and register all tools
+tool_registry = ToolRegistry(mcp, connection_manager)
+tool_registry.register_all_tools()
 
 @mcp.custom_route("/health", methods=["GET"])
 async def health_check(request: Request) -> JSONResponse:
@@ -586,11 +587,18 @@ def server_info() -> str:
         ],
         "available_tools": [
             "get_rhino_scene_info",
-            "get_rhino_layers", 
-            "get_rhino_objects_with_metadata",
+            "get_rhino_objects_info",
+            "add_rhino_objects_metadata",
+            "update_rhino_objects_metadata",
+            "create_rhino_basic_objects",
+            "create_rhino_layers",
+            "delete_rhino_layers",
+            "delete_rhino_objects",
+            "modify_rhino_objects",
             "capture_rhino_viewport",
             "execute_rhino_code",
             "get_rhino_selected_objects",
+            "select_rhino_objects",
             "look_up_RhinoScriptSyntax"
         ]
     }
@@ -601,7 +609,7 @@ def main():
     """Main entry point for the server."""
     logger.info(f"Starting Remote Rhino MCP Server v2.0 on {settings.host}:{settings.port}")
     logger.info("Architecture: License-based persistent sessions with auto-reconnection")
-    logger.info("Available Rhino tools: get_rhino_scene_info, get_rhino_layers, get_rhino_objects_with_metadata, capture_rhino_viewport, execute_rhino_code, get_rhino_selected_objects, look_up_RhinoScriptSyntax")
+    logger.info("Available Rhino tools: get_rhino_scene_info, get_rhino_objects_info, add_rhino_objects_metadata, update_rhino_objects_metadata, create_rhino_basic_objects, create_rhino_layers, delete_rhino_layers, delete_rhino_objects, modify_rhino_objects, capture_rhino_viewport, execute_rhino_code, get_rhino_selected_objects, select_rhino_objects, look_up_RhinoScriptSyntax")
     
     # Initialize managers before starting server
     logger.info("Initializing connection manager and license manager...")

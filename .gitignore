@@ -34,6 +34,10 @@ ENV/
 # Cursor
 .cursor/
 
+#Claude
+.claude/
+CLAUDE.md
+
 # OS
 .DS_Store
 Thumbs.db 
