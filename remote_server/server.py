@@ -13,7 +13,7 @@ from starlette.responses import JSONResponse
 
 from .config import settings
 from .connection_manager import ConnectionManager
-from .license_manager import LicenseManager
+from .license_manager import LicenseManager, LicenseRegistration
 from .tools._registry import ToolRegistry
 import asyncio
 import json
@@ -83,6 +83,85 @@ async def cleanup_expired_sessions(request: Request) -> JSONResponse:
         logger.error(f"Error during cleanup: {e}")
         return JSONResponse(
             {"error": "Failed to cleanup sessions"}, 
+            status_code=500
+        )
+
+@mcp.custom_route("/debug/mock-redis", methods=["GET"])
+async def get_mock_redis_status(request: Request) -> JSONResponse:
+    """Get mock Redis data summary (development only)"""
+    try:
+        if not connection_manager.use_mock_redis and not license_manager.use_mock_redis:
+            return JSONResponse(
+                {"error": "Not using mock Redis"}, 
+                status_code=400
+            )
+        
+        # Get data summary from both separate instances
+        connection_summary = connection_manager.redis_client.get_data_summary() if connection_manager.use_mock_redis else None
+        license_summary = license_manager.redis_client.get_data_summary() if license_manager.use_mock_redis else None
+        
+        return JSONResponse({
+            "status": "success",
+            "using_mock_redis": True,
+            "connection_manager": {
+                "uses_mock": connection_manager.use_mock_redis,
+                "data_summary": connection_summary
+            },
+            "license_manager": {
+                "uses_mock": license_manager.use_mock_redis,
+                "data_summary": license_summary
+            },
+            "timestamp": datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"Error getting mock Redis status: {e}")
+        return JSONResponse(
+            {"error": "Failed to get mock Redis status"}, 
+            status_code=500
+        )
+
+@mcp.custom_route("/debug/mock-redis/clear", methods=["POST"])
+async def clear_mock_redis_data(request: Request) -> JSONResponse:
+    """Clear all mock Redis data (development only)"""
+    try:
+        if not connection_manager.use_mock_redis and not license_manager.use_mock_redis:
+            return JSONResponse(
+                {"error": "Not using mock Redis"}, 
+                status_code=400
+            )
+        
+        # Get summary before clearing from both instances
+        connection_summary_before = connection_manager.redis_client.get_data_summary() if connection_manager.use_mock_redis else None
+        license_summary_before = license_manager.redis_client.get_data_summary() if license_manager.use_mock_redis else None
+        
+        # Clear data from both separate instances
+        if connection_manager.use_mock_redis:
+            connection_manager.redis_client.clear_all_data()
+            # Clear manager caches
+            connection_manager.sessions.clear()
+            connection_manager.host_app_notifications.clear()
+        
+        if license_manager.use_mock_redis:
+            license_manager.redis_client.clear_all_data()
+        
+        return JSONResponse({
+            "status": "success",
+            "message": "Separate mock Redis instances cleared",
+            "data_cleared": {
+                "connection_manager": connection_summary_before,
+                "license_manager": license_summary_before
+            },
+            "managers_cleared": {
+                "connection_manager_sessions": "cleared" if connection_manager.use_mock_redis else "not_using_mock",
+                "connection_manager_notifications": "cleared" if connection_manager.use_mock_redis else "not_using_mock",
+                "license_manager_data": "cleared" if license_manager.use_mock_redis else "not_using_mock"
+            },
+            "timestamp": datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"Error clearing mock Redis data: {e}")
+        return JSONResponse(
+            {"error": "Failed to clear mock Redis data"}, 
             status_code=500
         )
 
@@ -299,6 +378,7 @@ async def create_session(request: Request) -> JSONResponse:
         
         return JSONResponse({
             "session_id": session.session_id,
+            "instance_id": session.instance_id,  # Will be None initially, set when WebSocket connects
             "license_id": session.license_id,
             "websocket_port": session.websocket_port,
             "websocket_url": f"ws://{client_host}:{session.websocket_port}?session_id={session.session_id}",
@@ -401,6 +481,72 @@ async def get_pending_sessions(request: Request) -> JSONResponse:
         logger.error(f"Error getting pending sessions: {e}")
         return JSONResponse(
             {"error": "Failed to get pending sessions"}, 
+            status_code=500
+        )
+
+@mcp.custom_route("/sessions/reconnect", methods=["POST"])
+async def reconnect_session(request: Request) -> JSONResponse:
+    """Reconnect to an existing session (for client session persistence)"""
+    try:
+        data = await request.json()
+        session_id = data.get("session_id")
+        license_id = data.get("license_id")
+        user_id = data.get("user_id")
+        
+        if not session_id or not license_id or not user_id:
+            return JSONResponse(
+                {"error": "session_id, license_id, and user_id are required"}, 
+                status_code=400
+            )
+        
+        # Get the session
+        session = await connection_manager.get_session(session_id)
+        
+        if not session:
+            return JSONResponse(
+                {"error": "Session not found"}, 
+                status_code=404
+            )
+        
+        # Validate license and user match
+        if session.license_id != license_id or session.user_id != user_id:
+            return JSONResponse(
+                {"error": "License ID or user ID mismatch"}, 
+                status_code=403
+            )
+        
+        # Check if session is expired
+        if datetime.now() > session.expires_at:
+            return JSONResponse(
+                {"error": "Session has expired"}, 
+                status_code=410
+            )
+        
+        # Reactivate the session
+        session = await connection_manager.reactivate_session(session_id)
+        
+        if not session:
+            return JSONResponse(
+                {"error": "Failed to reactivate session"}, 
+                status_code=500
+            )
+        
+        # Use 127.0.0.1 for client connections
+        client_host = "127.0.0.1" if settings.host == "0.0.0.0" else settings.host
+        
+        return JSONResponse({
+            "session_id": session.session_id,
+            "instance_id": session.instance_id,
+            "websocket_url": f"ws://{client_host}:{session.websocket_port}?session_id={session.session_id}",
+            "file_path": session.file_path,
+            "status": session.status,
+            "reconnected_at": datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error reconnecting to session: {e}")
+        return JSONResponse(
+            {"error": "Failed to reconnect to session"}, 
             status_code=500
         )
 

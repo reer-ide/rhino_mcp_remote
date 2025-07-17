@@ -49,8 +49,8 @@ class ConnectionManager:
         self.host_app_notifications: Dict[str, asyncio.Queue] = {}  # For SSE notifications
         
         # Session TTL settings
-        self.session_dormant_ttl = 86400 * 7  # 7 days
-        self.session_max_ttl = 86400 * 30     # 30 days
+        self.session_dormant_ttl = 86400 * 30  # 30 days (same as max for simplicity)
+        self.session_max_ttl = 86400 * 30      # 30 days
         
     async def _init_redis(self):
         """Initialize Redis client with fallback to mock Redis"""
@@ -85,7 +85,7 @@ class ConnectionManager:
     
     async def create_persistent_session(self, user_id: str, file_path: str, license_id: str, 
                                        file_hash: str = None, file_size: int = 0) -> PersistentSession:
-        """Create a new persistent session with client-provided file information"""
+        """Create a new persistent session with client-provided file information (30-day expiration)"""
         await self._init_redis()
         
         # Validate license
@@ -513,7 +513,7 @@ class ConnectionManager:
         return self.host_app_notifications[session_id]
     
     async def cleanup_expired_sessions(self):
-        """Clean up expired sessions with enhanced lifecycle management"""
+        """Clean up expired sessions with enhanced lifecycle management (30-day expiration)"""
         current_time = datetime.now()
         expired_sessions = []
         dormant_sessions = []

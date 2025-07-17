@@ -29,9 +29,11 @@ class MockRedis:
         return True
     
     async def get(self, key: str) -> Optional[str]:
-        """Mock get method."""
+        """Mock get method with automatic cleanup."""
         if key in self.expiry and datetime.now() > self.expiry[key]:
             self.data.pop(key, None)
+            self.hash_data.pop(key, None)
+            self.set_data.pop(key, None)
             self.expiry.pop(key, None)
             return None
         return self.data.get(key)
@@ -78,7 +80,13 @@ class MockRedis:
         return self.hash_data.get(key, {}).get(field)
     
     async def hgetall(self, key: str) -> Dict[str, str]:
-        """Mock hgetall method."""
+        """Mock hgetall method with automatic cleanup."""
+        if key in self.expiry and datetime.now() > self.expiry[key]:
+            self.data.pop(key, None)
+            self.hash_data.pop(key, None)
+            self.set_data.pop(key, None)
+            self.expiry.pop(key, None)
+            return {}
         return self.hash_data.get(key, {})
     
     async def exists(self, key: str) -> int:
@@ -134,8 +142,44 @@ class MockRedis:
     async def close(self):
         """Mock close method."""
         pass
+    
+    def clear_all_data(self):
+        """Clear all stored data (for testing/development)."""
+        self.data.clear()
+        self.hash_data.clear()
+        self.set_data.clear()
+        self.expiry.clear()
+    
+    def get_data_summary(self) -> Dict[str, Any]:
+        """Get a summary of stored data (for debugging)."""
+        return {
+            "total_keys": len(self.data),
+            "total_hashes": len(self.hash_data),
+            "total_sets": len(self.set_data),
+            "total_expiries": len(self.expiry),
+            "sample_keys": list(self.data.keys())[:5],
+            "sample_hashes": list(self.hash_data.keys())[:5],
+            "sample_sets": list(self.set_data.keys())[:5]
+        }
 
+
+# Global shared mock Redis instance for development
+_shared_mock_redis = None
 
 def create_mock_redis(*args, **kwargs) -> MockRedis:
     """Factory function to create a mock Redis client."""
-    return MockRedis(*args, **kwargs) 
+    return MockRedis(*args, **kwargs)
+
+def get_shared_mock_redis() -> MockRedis:
+    """Get shared mock Redis instance for development."""
+    global _shared_mock_redis
+    if _shared_mock_redis is None:
+        _shared_mock_redis = MockRedis()
+    return _shared_mock_redis
+
+def reset_shared_mock_redis():
+    """Reset the shared mock Redis instance."""
+    global _shared_mock_redis
+    if _shared_mock_redis is not None:
+        _shared_mock_redis.clear_all_data()
+    _shared_mock_redis = None 
