@@ -1,14 +1,30 @@
 """Scene information tools for Rhino."""
+import json
+import logging
 from fastmcp import Context
 from typing import Optional, Dict, Any
-from ._base import BaseTool
 from remote_server.connection_manager import ConnectionManager
 
+logger = logging.getLogger("RhinoTools")
 
-class SceneTools(BaseTool):
-    """Tools for getting scene information."""
+
+def _format_json_response(result: Dict[str, Any]) -> str:
+    """Format a result dictionary as a JSON string."""
+    return json.dumps(result, indent=2)
+
+
+def _handle_error(operation: str, session_id: str, error: Exception) -> str:
+    """Handle and log errors consistently."""
+    error_msg = f"Error {operation} in session {session_id}: {str(error)}"
+    logger.error(error_msg)
+    return error_msg
+
+
+def register_tools(mcp, connection_manager: ConnectionManager):
+    """Register scene tools with the MCP server."""
     
-    async def get_rhino_scene_info(self, ctx: Context, session_id: str) -> str:
+    @mcp.tool()
+    async def get_rhino_scene_info(session_id: str) -> str:
         """Get basic information about the current Rhino scene.
         
         This is a lightweight function that returns basic scene information:
@@ -23,31 +39,26 @@ class SceneTools(BaseTool):
             JSON string containing basic scene information
         """
         try:
-            result = await self.send_to_rhino(session_id, "get_rhino_scene_info")
-            return self.format_json_response(result)
+            result = await connection_manager.send_to_rhino(session_id, "get_rhino_scene_info")
+            return _format_json_response(result)
         except Exception as e:
-            return self.handle_error("getting scene info", session_id, e)
+            return _handle_error("getting scene info", session_id, e)
 
-    async def get_rhino_objects_info(self, ctx: Context, session_id: str, filters: Optional[Dict[str, Any]] = None, include_attributes: bool = False) -> str:
+    @mcp.tool()
+    async def get_rhino_objects_info(session_id: str, filters: Optional[Dict[str, Any]] = None, include_attributes: bool = False) -> str:
         """Get detailed information about objects in the scene.
         
-        This function provides comprehensive object information using the standard Rhino object serialization:
-        - Object ID, name, type, layer, material, color, bounding box
-        - Geometry-specific information (points, lines, curves, etc.)
-        - Optional description from user text
-        - Optional all user attributes when include_attributes=True
-        
-        Available filters:
-        - layer: Filter by layer name (supports wildcards, e.g., "Layer*")
-        - name: Filter by object name (supports wildcards, e.g., "Cube*")
-        - type: Filter by object type (e.g., "Curve", "Brep", "Point")
-        - description: Filter by description text
+        This function provides comprehensive object information including:
+        - Full geometry details and properties
+        - Complete object attributes and metadata
+        - Filtering capabilities for specific object types
+        - Use this when you need detailed analysis or when working with specific object properties
         
         Args:
             session_id: The session ID of the connected Rhino instance
-            filters: Optional dictionary of filters to apply
-            include_attributes: Whether to include all user attributes in the response
-        
+            filters: Optional dictionary to filter objects (e.g., {"type": "curve", "layer": "Construction"})
+            include_attributes: Whether to include full object attributes in the response (default: False for performance)
+            
         Returns:
             JSON string containing filtered objects with their information
         """
@@ -56,14 +67,17 @@ class SceneTools(BaseTool):
                 "filters": filters or {},
                 "include_attributes": include_attributes
             }
-            result = await self.send_to_rhino(session_id, "get_rhino_objects_info", params)
-            return self.format_json_response(result)
+            result = await connection_manager.send_to_rhino(session_id, "get_rhino_objects_info", params)
+            return _format_json_response(result)
         except Exception as e:
-            return self.handle_error("getting objects info", session_id, e)
+            return _handle_error("getting objects info", session_id, e)
 
 
-def register_tools(app, connection_manager: ConnectionManager):
-    """Register scene tools with the MCP server."""
-    tools = SceneTools(connection_manager)
-    app.tool()(tools.get_rhino_scene_info)
-    app.tool()(tools.get_rhino_objects_info) 
+
+
+
+
+
+
+
+

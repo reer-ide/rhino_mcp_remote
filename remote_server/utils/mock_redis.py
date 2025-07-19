@@ -152,6 +152,18 @@ class MockRedis:
     
     def get_data_summary(self) -> Dict[str, Any]:
         """Get a summary of stored data (for debugging)."""
+        # Extract sessions from hash data
+        sessions = {}
+        licenses = {}
+        
+        for key, data in self.hash_data.items():
+            if key.startswith("session:"):
+                session_id = key.replace("session:", "")
+                sessions[session_id] = data
+            elif key.startswith("license:"):
+                license_id = key.replace("license:", "")
+                licenses[license_id] = data
+        
         return {
             "total_keys": len(self.data),
             "total_hashes": len(self.hash_data),
@@ -159,7 +171,9 @@ class MockRedis:
             "total_expiries": len(self.expiry),
             "sample_keys": list(self.data.keys())[:5],
             "sample_hashes": list(self.hash_data.keys())[:5],
-            "sample_sets": list(self.set_data.keys())[:5]
+            "sample_sets": list(self.set_data.keys())[:5],
+            "sessions": sessions,  # Add actual session data
+            "licenses": licenses   # Add actual license data
         }
 
 

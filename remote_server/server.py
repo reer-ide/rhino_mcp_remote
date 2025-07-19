@@ -11,10 +11,9 @@ from fastmcp.utilities.logging import get_logger
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from .config import settings
-from .connection_manager import ConnectionManager
-from .license_manager import LicenseManager, LicenseRegistration
-from .tools._registry import ToolRegistry
+from remote_server.config import settings
+from remote_server.connection_manager import ConnectionManager
+from remote_server.license_manager import LicenseManager, LicenseRegistration
 import asyncio
 import json
 
@@ -34,29 +33,90 @@ mcp = FastMCP(
         """,
     )
 
-# Create and initialize managers
-connection_manager = ConnectionManager(redis_url=settings.redis_connection_url)
+# Global connection manager for tool access
+app_connection_manager: Optional[ConnectionManager] = None
+
+def get_app_connection_manager() -> ConnectionManager:
+    """Get the global connection manager instance for tools."""
+    if app_connection_manager is None:
+        raise RuntimeError("Connection manager not initialized")
+    return app_connection_manager
+
+# Global managers - will be initialized lazily
+connection_manager = None
 license_manager = None
+_initialization_lock = None
+_managers_initialized = False
+
+# Tool registrations will happen after managers are initialized
+def register_all_tools():
+    """Register all MCP tools with the server."""
+    global connection_manager
+    
+    # Import tool modules
+    from remote_server.tools import (
+        scene_tools,
+        object_tools,
+        selection_tools,
+        metadata_tools,
+        layer_tools,
+        viewport_tools,
+        utility_tools,
+        execution_tools,
+        documentation_tools,
+    )
+    
+    # Register tools with the mcp instance and connection manager
+    scene_tools.register_tools(mcp, connection_manager)
+    object_tools.register_tools(mcp, connection_manager)
+    selection_tools.register_tools(mcp, connection_manager)
+    metadata_tools.register_tools(mcp, connection_manager)
+    layer_tools.register_tools(mcp, connection_manager)
+    viewport_tools.register_tools(mcp, connection_manager)
+    utility_tools.register_tools(mcp, connection_manager)
+    execution_tools.register_tools(mcp, connection_manager)
+    documentation_tools.register_tools(mcp, connection_manager)
+    
+    logger.info("All MCP tools registered successfully")
 
 async def initialize_managers():
     """Initialize the managers with separate Redis connections"""
-    global license_manager
+    global connection_manager, license_manager, _managers_initialized, _initialization_lock
     
-    # Initialize connection manager with its own Redis
-    await connection_manager._init_redis()
-    logger.info("ConnectionManager Redis initialized")
+    # Create lock if it doesn't exist
+    if _initialization_lock is None:
+        _initialization_lock = asyncio.Lock()
     
-    # Initialize license manager with its own Redis connection
-    license_manager = LicenseManager(redis_url=settings.redis_connection_url)
-    await license_manager._init_redis()
-    logger.info("LicenseManager Redis initialized")
-    
-    # Give connection manager access to license manager for session validation
-    connection_manager.license_manager = license_manager
+    async with _initialization_lock:
+        # Check if already initialized (double-checked locking pattern)
+        if _managers_initialized:
+            return
+            
+        logger.info("Starting manager initialization...")
+        
+        # Initialize connection manager with its own Redis
+        connection_manager = ConnectionManager(redis_url=settings.redis_connection_url)
+        await connection_manager._init_redis()
+        logger.info("ConnectionManager Redis initialized")
+        
+        # Initialize license manager with its own Redis connection
+        license_manager = LicenseManager(redis_url=settings.redis_connection_url)
+        await license_manager._init_redis()
+        logger.info("LicenseManager Redis initialized")
+        
+        # Give connection manager access to license manager for session validation
+        connection_manager.license_manager = license_manager
+        
+        # Register all MCP tools now that managers are initialized
+        register_all_tools()
+        
+        _managers_initialized = True
 
-# Initialize tool registry and register all tools
-tool_registry = ToolRegistry(mcp, connection_manager)
-tool_registry.register_all_tools()
+
+async def ensure_managers_initialized():
+    """Ensure managers are initialized, initializing them if needed"""
+    if not _managers_initialized:
+        await initialize_managers()
 
 @mcp.custom_route("/health", methods=["GET"])
 async def health_check(request: Request) -> JSONResponse:
@@ -73,6 +133,7 @@ async def health_check(request: Request) -> JSONResponse:
 async def cleanup_expired_sessions(request: Request) -> JSONResponse:
     """Manual cleanup endpoint for expired sessions"""
     try:
+        await ensure_managers_initialized()
         await connection_manager.cleanup_expired_sessions()
         return JSONResponse({
             "status": "success",
@@ -86,10 +147,13 @@ async def cleanup_expired_sessions(request: Request) -> JSONResponse:
             status_code=500
         )
 
+# Debug Endpoints
 @mcp.custom_route("/debug/mock-redis", methods=["GET"])
 async def get_mock_redis_status(request: Request) -> JSONResponse:
     """Get mock Redis data summary (development only)"""
     try:
+        await ensure_managers_initialized()
+            
         if not connection_manager.use_mock_redis and not license_manager.use_mock_redis:
             return JSONResponse(
                 {"error": "Not using mock Redis"}, 
@@ -111,6 +175,8 @@ async def get_mock_redis_status(request: Request) -> JSONResponse:
                 "uses_mock": license_manager.use_mock_redis,
                 "data_summary": license_summary
             },
+            "active_sessions_count": len(connection_manager.sessions),
+            "active_sessions_list": list(connection_manager.sessions.keys()),
             "timestamp": datetime.now().isoformat()
         })
     except Exception as e:
@@ -170,6 +236,8 @@ async def clear_mock_redis_data(request: Request) -> JSONResponse:
 async def generate_license_key(request: Request) -> JSONResponse:
     """Generate a new license key (for testing/admin purposes)"""
     try:
+        await ensure_managers_initialized()
+            
         data = await request.json()
         issued_to = data.get("issued_to")
         tier = data.get("tier", "beta")
@@ -212,6 +280,8 @@ async def generate_license_key(request: Request) -> JSONResponse:
 async def register_license(request: Request) -> JSONResponse:
     """Register a license using a license key"""
     try:
+        await ensure_managers_initialized()
+            
         data = await request.json()
         license_key = data.get("license_key")
         user_id = data.get("user_id")
@@ -254,6 +324,7 @@ async def register_license(request: Request) -> JSONResponse:
 async def validate_license(request: Request) -> JSONResponse:
     """Validate a license key or license ID with machine fingerprint"""
     try:
+        await ensure_managers_initialized()
         data = await request.json()
         license_key = data.get("license_key")
         license_id = data.get("license_id")
@@ -319,6 +390,7 @@ async def validate_license(request: Request) -> JSONResponse:
 async def get_license_info(request: Request) -> JSONResponse:
     """Get license information"""
     try:
+        await ensure_managers_initialized()
         license_id = request.path_params["license_id"]
         license_data = await license_manager.get_license(license_id)
         
@@ -351,6 +423,8 @@ async def get_license_info(request: Request) -> JSONResponse:
 async def create_session(request: Request) -> JSONResponse:
     """Create a new persistent session with client-provided file information"""
     try:
+        await ensure_managers_initialized()
+            
         data = await request.json()
         user_id = data.get("user_id") 
         file_path = data.get("file_path")
@@ -406,6 +480,7 @@ async def create_session(request: Request) -> JSONResponse:
 async def get_active_sessions(request: Request) -> JSONResponse:
     """Get active sessions for a user"""
     try:
+        await ensure_managers_initialized()
         user_id = request.query_params.get("user_id")
         license_id = request.query_params.get("license_id")
         
@@ -451,6 +526,7 @@ async def get_active_sessions(request: Request) -> JSONResponse:
 async def get_pending_sessions(request: Request) -> JSONResponse:
     """Get pending sessions for a license (for auto-reconnection)"""
     try:
+        await ensure_managers_initialized()
         license_id = request.query_params.get("license_id")
         
         if not license_id:
@@ -488,6 +564,7 @@ async def get_pending_sessions(request: Request) -> JSONResponse:
 async def reconnect_session(request: Request) -> JSONResponse:
     """Reconnect to an existing session (for client session persistence)"""
     try:
+        await ensure_managers_initialized()
         data = await request.json()
         session_id = data.get("session_id")
         license_id = data.get("license_id")
@@ -554,6 +631,7 @@ async def reconnect_session(request: Request) -> JSONResponse:
 async def reactivate_session(request: Request) -> JSONResponse:
     """Reactivate a dormant session"""
     try:
+        await ensure_managers_initialized()
         session_id = request.path_params["session_id"]
         session = await connection_manager.reactivate_session(session_id)
         
@@ -586,6 +664,7 @@ async def get_session_notifications(request: Request) -> JSONResponse:
     """SSE endpoint for session notifications"""
     from starlette.responses import StreamingResponse
     
+    await ensure_managers_initialized()
     session_id = request.path_params["session_id"]
     
     async def event_stream():
@@ -618,6 +697,7 @@ async def get_session_notifications(request: Request) -> JSONResponse:
 async def get_session_status(request: Request) -> JSONResponse:
     """Get detailed session status"""
     try:
+        await ensure_managers_initialized()
         session_id = request.path_params["session_id"]
         session = await connection_manager.get_session(session_id)
         
@@ -654,6 +734,7 @@ async def get_session_status(request: Request) -> JSONResponse:
 async def create_session_legacy(request: Request) -> JSONResponse:
     """Legacy session creation endpoint (for backward compatibility)"""
     try:
+        await ensure_managers_initialized()
         data = await request.json()
         user_id = data.get("user_id") 
         file_path = data.get("file_path")
@@ -688,6 +769,7 @@ async def create_session_legacy(request: Request) -> JSONResponse:
 async def get_session_status_resource(session_id: str) -> str:
     """Get connection session status as MCP resource"""
     try:
+        await ensure_managers_initialized()
         session = await connection_manager.get_session(session_id)
         if not session:
             return json.dumps({"error": "Session not found"})
@@ -722,8 +804,8 @@ def server_info() -> str:
             "port": settings.port,
             "debug": settings.debug,
         },
-        "active_sessions": len(connection_manager.sessions),
-        "active_licenses": len(connection_manager.licenses),
+        "active_sessions": len(connection_manager.sessions) if connection_manager else 0,
+        "active_licenses": 0,  # This would need to be implemented properly
         "features": [
             "license_registration",
             "persistent_sessions", 
@@ -757,10 +839,8 @@ def main():
     logger.info("Architecture: License-based persistent sessions with auto-reconnection")
     logger.info("Available Rhino tools: get_rhino_scene_info, get_rhino_objects_info, add_rhino_objects_metadata, update_rhino_objects_metadata, create_rhino_basic_objects, create_rhino_layers, delete_rhino_layers, delete_rhino_objects, modify_rhino_objects, capture_rhino_viewport, execute_rhino_code, get_rhino_selected_objects, select_rhino_objects, look_up_RhinoScriptSyntax")
     
-    # Initialize managers before starting server
-    logger.info("Initializing connection manager and license manager...")
-    asyncio.run(initialize_managers())
-    logger.info("Managers initialized successfully")
+    # Managers will be initialized on first use
+    logger.info("Starting server with lazy manager initialization...")
     
     try:
         mcp.run(

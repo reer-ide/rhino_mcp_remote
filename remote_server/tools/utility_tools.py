@@ -1,13 +1,32 @@
 """Utility tools for basic server operations."""
+import json
+import logging
 from fastmcp import Context
-from ._base import BaseTool
-from remote_server.connection_manager import ConnectionManager
+from typing import Optional, Dict, Any
+try:
+    from ..connection_manager import ConnectionManager
+except ImportError:
+    from remote_server.connection_manager import ConnectionManager
+
+logger = logging.getLogger("RhinoTools")
+
+def _format_json_response(result: Dict[str, Any]) -> str:
+    """Format a result dictionary as a JSON string."""
+    return json.dumps(result, indent=2)
 
 
-class UtilityTools(BaseTool):
-    """Basic utility tools for server operations."""
+def _handle_error(operation: str, session_id: str, error: Exception) -> str:
+    """Handle and log errors consistently."""
+    error_msg = f"Error {operation} in session {session_id}: {str(error)}"
+    logger.error(error_msg)
+    return error_msg
+
+
+def register_tools(mcp, connection_manager: ConnectionManager):
+    """Register utility tools with the MCP server."""
     
-    async def ping(self, ctx: Context, session_id: str) -> str:
+    @mcp.tool()
+    async def ping(session_id: str) -> str:
         """Ping the Rhino session to check if it is connected.
         
         Args:
@@ -17,13 +36,7 @@ class UtilityTools(BaseTool):
             JSON string containing the ping response
         """
         try:
-            result = await self.send_to_rhino(session_id, "ping")
-            return self.format_json_response(result)
+            result = await connection_manager.send_to_rhino(session_id, "ping")
+            return _format_json_response(result)
         except Exception as e:
-            return self.handle_error("pinging Rhino", session_id, e)
-
-
-def register_tools(app, connection_manager: ConnectionManager):
-    """Register utility tools with the MCP server."""
-    tools = UtilityTools(connection_manager)
-    app.tool()(tools.ping) 
+            return _handle_error("pinging Rhino", session_id, e)

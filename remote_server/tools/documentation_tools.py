@@ -1,16 +1,31 @@
 """Documentation lookup tools for RhinoScript."""
+import json
+import logging
 import re
 import requests
 from fastmcp import Context
-from ._base import BaseTool
-from remote_server.connection_manager import ConnectionManager
-from remote_server.utils.rhino_script_categories import get_function_category
+from typing import Optional, Dict, Any
+try:
+    from ..connection_manager import ConnectionManager
+    from ..utils.rhino_script_categories import get_function_category
+except ImportError:
+    from remote_server.connection_manager import ConnectionManager
+    from remote_server.utils.rhino_script_categories import get_function_category
+
+logger = logging.getLogger("RhinoTools")
+
+def _handle_error(operation: str, session_id: str, error: Exception) -> str:
+    """Handle and log errors consistently."""
+    error_msg = f"Error {operation} in session {session_id}: {str(error)}"
+    logger.error(error_msg)
+    return error_msg
 
 
-class DocumentationTools(BaseTool):
-    """Tools for accessing RhinoScript documentation."""
+def register_tools(mcp, connection_manager: ConnectionManager):
+    """Register documentation tools with the MCP server."""
     
-    async def look_up_RhinoScriptSyntax(self, ctx: Context, function_name: str) -> str:
+    @mcp.tool()
+    async def look_up_RhinoScriptSyntax(session_id: str, function_name: str) -> str:
         """Look up the documentation for a RhinoScriptSyntax function.
         
         This tool fetches the detailed API documentation for a specified RhinoScriptSyntax function
@@ -148,10 +163,4 @@ class DocumentationTools(BaseTool):
             return "\n".join(documentation)
             
         except Exception as e:
-            return self.handle_error("looking up RhinoScriptSyntax documentation", "N/A", e)
-
-
-def register_tools(app, connection_manager: ConnectionManager):
-    """Register documentation tools with the MCP server."""
-    tools = DocumentationTools(connection_manager)
-    app.tool()(tools.look_up_RhinoScriptSyntax) 
+            return _handle_error("looking up RhinoScriptSyntax documentation", "N/A", e)

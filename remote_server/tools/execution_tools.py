@@ -1,13 +1,28 @@
 """Code execution tools for Rhino."""
+import json
+import logging
 from fastmcp import Context
-from ._base import BaseTool
-from remote_server.connection_manager import ConnectionManager
+from typing import Optional, Dict, Any
+try:
+    from ..connection_manager import ConnectionManager
+except ImportError:
+    from remote_server.connection_manager import ConnectionManager
+
+logger = logging.getLogger("RhinoTools")
 
 
-class ExecutionTools(BaseTool):
-    """Tools for executing code in Rhino."""
+def _handle_error(operation: str, session_id: str, error: Exception) -> str:
+    """Handle and log errors consistently."""
+    error_msg = f"Error {operation} in session {session_id}: {str(error)}"
+    logger.error(error_msg)
+    return error_msg
+
+
+def register_tools(mcp, connection_manager: ConnectionManager):
+    """Register execution tools with the MCP server."""
     
-    async def execute_rhino_code(self, ctx: Context, session_id: str, code: str) -> str:
+    @mcp.tool()
+    async def execute_rhino_code(session_id: str, code: str) -> str:
         """Execute arbitrary Python code in Rhino.
         
         IMPORTANT NOTES FOR CODE EXECUTION:
@@ -40,7 +55,7 @@ class ExecutionTools(BaseTool):
             Execution result
         """
         try:
-            result = await self.send_to_rhino(session_id, "execute_rhino_script", {"code": code})
+            result = await connection_manager.send_to_rhino(session_id, "execute_rhino_script", {"code": code})
             
             # Handle the response
             if result.get("status") == "error":
@@ -59,10 +74,6 @@ class ExecutionTools(BaseTool):
                 return "\n".join(response_parts)
                 
         except Exception as e:
-            return self.handle_error("executing code", session_id, e)
+            return _handle_error("executing code", session_id, e)
 
 
-def register_tools(app, connection_manager: ConnectionManager):
-    """Register execution tools with the MCP server."""
-    tools = ExecutionTools(connection_manager)
-    app.tool()(tools.execute_rhino_code) 

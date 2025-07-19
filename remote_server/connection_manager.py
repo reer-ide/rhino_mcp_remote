@@ -11,7 +11,7 @@ import redis.asyncio as redis
 from fastmcp import FastMCP
 
 # Import our new license management system
-from .license_manager import LicenseManager, LicenseRegistration
+from remote_server.license_manager import LicenseManager, LicenseRegistration
 from remote_server.utils.mock_redis import create_mock_redis
 
 logger = logging.getLogger(__name__)
@@ -261,7 +261,7 @@ class ConnectionManager:
         
         server = await websockets.serve(
             handle_connection,
-            "0.0.0.0",
+            "localhost",
             session.websocket_port
         )
         
