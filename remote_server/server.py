@@ -17,6 +17,8 @@ from remote_server.license_manager import LicenseManager, LicenseRegistration
 import asyncio
 import json
 
+from remote_server.tools import rhinoscript_tools
+
 # Use FastMCP's logging system
 logger = get_logger(__name__)
 
@@ -62,7 +64,6 @@ def register_all_tools():
         layer_tools,
         viewport_tools,
         utility_tools,
-        execution_tools,
         documentation_tools,
     )
     
@@ -74,7 +75,7 @@ def register_all_tools():
     layer_tools.register_tools(mcp, connection_manager)
     viewport_tools.register_tools(mcp, connection_manager)
     utility_tools.register_tools(mcp, connection_manager)
-    execution_tools.register_tools(mcp, connection_manager)
+    rhinoscript_tools.register_tools(mcp, connection_manager)
     documentation_tools.register_tools(mcp, connection_manager)
     
     logger.info("All MCP tools registered successfully")

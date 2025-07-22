@@ -1,19 +1,11 @@
 """Viewport capture tools for Rhino."""
 import base64
 import io
-import logging
 from fastmcp import Context
 from mcp.types import ImageContent
 from typing import Optional
 from remote_server.connection_manager import ConnectionManager
-
-logger = logging.getLogger("RhinoTools")
-
-def _handle_error(operation: str, session_id: str, error: Exception) -> str:
-    """Handle and log errors consistently."""
-    error_msg = f"Error {operation} in session {session_id}: {str(error)}"
-    logger.error(error_msg)
-    return error_msg
+from remote_server.utils.tool_helpers import handle_error
 
 
 def register_tools(mcp, connection_manager: ConnectionManager):
@@ -41,7 +33,7 @@ def register_tools(mcp, connection_manager: ConnectionManager):
             result = await connection_manager.send_to_rhino(session_id, "capture_rhino_viewport", params)
             
             # The C# client wraps responses in a structure like:
-            # { "type": "response", "correlation_id": "...", "result": { actual_tool_result } }
+            # { "type": "response", "correlation_id": "...", "status": "success", "result": { actual_tool_result } }
             # We need to extract the actual result
             actual_result = result
             if result.get("type") == "response" and "result" in result:
@@ -68,6 +60,5 @@ def register_tools(mcp, connection_manager: ConnectionManager):
                 raise Exception(f"Unexpected response type: {actual_result.get('type')}")
                   
         except Exception as e:
-            logger.error(f"Error capturing viewport: {e}")
-            raise
+            return handle_error("capturing viewport", session_id, e)
 

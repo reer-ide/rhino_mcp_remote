@@ -1,6 +1,5 @@
 """Documentation lookup tools for RhinoScript."""
 import json
-import logging
 import re
 import requests
 from fastmcp import Context
@@ -11,15 +10,7 @@ try:
 except ImportError:
     from remote_server.connection_manager import ConnectionManager
     from remote_server.utils.rhino_script_categories import get_function_category
-
-logger = logging.getLogger("RhinoTools")
-
-def _handle_error(operation: str, session_id: str, error: Exception) -> str:
-    """Handle and log errors consistently."""
-    error_msg = f"Error {operation} in session {session_id}: {str(error)}"
-    logger.error(error_msg)
-    return error_msg
-
+from remote_server.utils.tool_helpers import handle_error
 
 def register_tools(mcp, connection_manager: ConnectionManager):
     """Register documentation tools with the MCP server."""
@@ -163,4 +154,4 @@ def register_tools(mcp, connection_manager: ConnectionManager):
             return "\n".join(documentation)
             
         except Exception as e:
-            return _handle_error("looking up RhinoScriptSyntax documentation", "N/A", e)
+            return handle_error("looking up RhinoScriptSyntax documentation", "N/A", e)

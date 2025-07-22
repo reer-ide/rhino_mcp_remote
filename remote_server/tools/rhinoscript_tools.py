@@ -1,21 +1,12 @@
 """Code execution tools for Rhino."""
 import json
-import logging
 from fastmcp import Context
 from typing import Optional, Dict, Any
 try:
     from ..connection_manager import ConnectionManager
 except ImportError:
     from remote_server.connection_manager import ConnectionManager
-
-logger = logging.getLogger("RhinoTools")
-
-
-def _handle_error(operation: str, session_id: str, error: Exception) -> str:
-    """Handle and log errors consistently."""
-    error_msg = f"Error {operation} in session {session_id}: {str(error)}"
-    logger.error(error_msg)
-    return error_msg
+from remote_server.utils.tool_helpers import handle_tool_exe_response, handle_error
 
 
 def register_tools(mcp, connection_manager: ConnectionManager):
@@ -57,23 +48,32 @@ def register_tools(mcp, connection_manager: ConnectionManager):
         try:
             result = await connection_manager.send_to_rhino(session_id, "execute_rhino_script", {"code": code})
             
-            # Handle the response
-            if result.get("status") == "error":
-                error_msg = f"Error: {result.get('error', 'Unknown error')}"
-                return error_msg
-            else:
+            # Use the standard tool response handler, but customize the output format for code execution
+            try:
+                # This will handle error checking and raise exceptions for errors
+                formatted_response = handle_tool_exe_response("executing code", session_id, result)
+                
+                # Parse the response to extract code execution specific information
+                import json
+                parsed_result = json.loads(formatted_response)
+                
+                # Format the response for code execution (show message and printed output)
                 response_parts = []
-                response_parts.append(result.get("message", "Code executed successfully"))
+                response_parts.append(parsed_result.get("message", "Code executed successfully"))
                 
                 # Add printed output if available
-                printed_output = result.get("printed_output", [])
+                printed_output = parsed_result.get("printed_output", [])
                 if printed_output:
                     response_parts.append("\nPrinted output:")
                     response_parts.extend(printed_output)
                 
                 return "\n".join(response_parts)
                 
+            except Exception as tool_error:
+                # If handle_tool_exe_response raised an exception due to plugin error, return the error message
+                return f"Error: {str(tool_error)}"
+                
         except Exception as e:
-            return _handle_error("executing code", session_id, e)
+            return handle_error("executing code", session_id, e)
 
 

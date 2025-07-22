@@ -1,22 +1,8 @@
 """Object creation, modification, and deletion tools for Rhino."""
-import json
-import logging
 from fastmcp import Context
 from typing import List, Dict, Any, Optional
 from remote_server.connection_manager import ConnectionManager
-
-logger = logging.getLogger("RhinoTools")
-
-def _format_json_response(result: Dict[str, Any]) -> str:
-    """Format a result dictionary as a JSON string."""
-    return json.dumps(result, indent=2)
-
-
-def _handle_error(operation: str, session_id: str, error: Exception) -> str:
-    """Handle and log errors consistently."""
-    error_msg = f"Error {operation} in session {session_id}: {str(error)}"
-    logger.error(error_msg)
-    return error_msg
+from remote_server.utils.tool_helpers import handle_tool_exe_response, handle_error
 
 
 def register_tools(mcp, connection_manager: ConnectionManager):
@@ -79,9 +65,9 @@ def register_tools(mcp, connection_manager: ConnectionManager):
                 "objects": objects
             }
             result = await connection_manager.send_to_rhino(session_id, "create_rhino_basic_geometries", params)
-            return _format_json_response(result)
+            return handle_tool_exe_response("creating basic geometries", session_id, result)
         except Exception as e:
-            return _handle_error("creating basic geometries", session_id, e)
+            return handle_error("creating basic geometries", session_id, e)
 
     @mcp.tool()
     async def delete_rhino_objects(session_id: str, objects: List[Dict[str, Any]] = None, id: str = None, name: str = None, all: bool = False) -> str:
@@ -115,9 +101,9 @@ def register_tools(mcp, connection_manager: ConnectionManager):
                 params["name"] = name
                   
             result = await connection_manager.send_to_rhino(session_id, "delete_rhino_objects", params)
-            return _format_json_response(result)
+            return handle_tool_exe_response("deleting objects", session_id, result)
         except Exception as e:
-            return _handle_error("deleting objects", session_id, e)
+            return handle_error("deleting objects", session_id, e)
 
     @mcp.tool()
     async def modify_rhino_objects(session_id: str, objects: List[Dict[str, Any]], all: bool = False) -> str:
@@ -151,6 +137,6 @@ def register_tools(mcp, connection_manager: ConnectionManager):
                 params["all"] = True
                   
             result = await connection_manager.send_to_rhino(session_id, "modify_rhino_objects", params)
-            return _format_json_response(result)
+            return handle_tool_exe_response("modifying objects", session_id, result)
         except Exception as e:
-            return _handle_error("modifying objects", session_id, e)
+            return handle_error("modifying objects", session_id, e)
