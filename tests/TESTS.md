@@ -25,11 +25,10 @@ dotnet build
 
 # 3. Run integration tests (in new terminal)
 cd rhino_mcp_remote/tests  
-python run_integration_tests.py integration
+python test_integration_connected_flow.py
 
-# 4. after registering the license with the server, you can run the tool call tests quickly by running the following command
-python .\tests\test_integration_connected_flow.py quick
-# this will skip the license registration and session creation steps, and directly run the tool call tests
+# 4. Quick tool tests (skips license/session setup)
+python tests/test_integration_connected_flow.py quick
 ```
 
 ## Test Files
@@ -52,37 +51,80 @@ python .\tests\test_integration_connected_flow.py quick
 2. **Connection**: Run `ReerStart` → choose 'remote' in Rhino with open document
 
 ### What Gets Tested
-- License generation and registration flow
-- Session creation and management  
-- 8 core MCP tools with actual Rhino responses:
-  - `get_rhino_scene_info`
-  - `create_rhino_basic_objects` 
-  - `add_rhino_objects_metadata`
-  - `create_rhino_layers`
-  - `select_rhino_objects`
-  - `get_rhino_selected_objects`
-  - `get_rhino_objects_info`
-  - `capture_rhino_viewport`
+**12-Phase Integration Workflow:**
+1. **Scene Assessment** - Extract units, auto-scale objects based on document units (mm→100x, m→0.1x)
+2. **Layer Creation** - Create test layer with color
+3. **Object Creation** - Box, sphere, cylinder with proper scaling
+4. **Metadata Management** - Add/update object names and descriptions  
+5. **Information Retrieval** - Query objects with attributes
+6. **Selection & Modification** - Chained operations (rotate→translate→recolor) with sequential execution
+7. **Viewport Capture** - Screenshot with auto-decode and save (PNG files)
+8. **Script Execution** - Complex spiral curve via rhinoscriptsyntax
+9. **Visual Verification** - Interactive inspection before cleanup
+10. **Final Assessment** - Compare end vs initial state
+11. **Cleanup** - Delete all test objects and layers
+12. **Verification** - Ensure complete cleanup
+
+**13 MCP Tools Tested:**
+- Scene info, object creation/modification/deletion  
+- Layer management, metadata operations
+- Selection tools, viewport capture, script execution
+
+## New Test Features
+
+### Unit-Aware Scaling
+Objects automatically scaled for visibility based on document units:
+- **Millimeters**: 100x scale (500mm box instead of 5mm)
+- **Meters**: 0.1x scale  
+- **Imperial**: 10x scale
+
+### Interactive Visual Verification
+Test pauses before cleanup for manual inspection:
+```
+👁️ VISUAL INSPECTION REQUIRED
+📋 Expected objects (scaled 100.0x for Millimeters):
+  • TestBox_1 - 500×300×200mm - rotated and moved
+  • TestSphere_1 - 200mm radius - blue color
+  • IntegrationTest_Spiral - complex curve
+
+✅ Can you see the expected objects? (y/n/s):
+```
+
+### Automatic Screenshot Capture
+Viewport images auto-decoded and saved:
+```
+📸 Viewport captured (285ms)
+💾 Image saved: viewport_capture_20250723_143022.png
+```
 
 ## Troubleshooting
 
-**Server connection failed**: Ensure server is running and port 8080 is free
+**Server connection failed**: Ensure server running on port 8080
 
-**ReerRegister command not found**: Plugin not loaded - rebuild/reinstall plugin
+**Plugin not loaded**: Rebuild plugin, check PluginManager and right click on the plugin and select "Load"
 
-**No active session found**: Run `ReerStart` → 'remote' with Rhino document open
+**No active session**: Run `ReerStart` → 'remote' with open document, Run `ReerRestart` to restart the connection with a new session (if you have restarted the server, you need to restart the connection)
 
-**License registration failed**: Copy license key and user ID exactly as shown
+**Objects too small**: Check unit scaling in console output
 
-## Test Results
+**Modify test skipped**: Check object ID extraction messages
 
-- Unit tests: JSON report in `mcp_test_results.json`
-- Integration tests: JSON report in `integration_test_results.json`  
-- Success rate shown in console output
+**Objects not found**: Check object ID extraction messages
+
+## Test Results & Artifacts
+
+**Generated Files:**
+- `integration_test_results.json` - Detailed test report with performance metrics
+- `viewport_capture_YYYYMMDD_HHMMSS.png` - Screenshot captures  
+- Console logs with object IDs, scaling factors, and execution times
+
+**Expected Success Rate:** 100% (13/13 tools passing)
 
 ## Coverage
 
-- **13 MCP tools** tested with comprehensive unit tests
-- **8 critical tools** tested with real Rhino integration
-- **Complete workflow scenarios** for realistic usage patterns
+- **13 MCP tools** with comprehensive integration testing
+- **12-phase workflow** covering complete CAD operations  
+- **Unit-aware scaling** for all document types
+- **Visual verification** with interactive inspection
+- **Error handling** with graceful fallbacks
 - **License and session management** end-to-end validation

@@ -1,81 +1,241 @@
 # RhinoMCP Remote Server
 
-**RhinoMCP** is a proprietary, cloud-hosted server for the Model Context Protocol (MCP). It extends the open-source [RhinoMCP project](https://github.com/reer-ide/rhino_mcp) to enable a robust, scalable bridge between AI host applications (like Claude) and a user's local Rhino/Grasshopper instances.
+**RhinoMCP Remote Server** is a proprietary, cloud-hosted server for the Model Context Protocol (MCP). It provides a robust, scalable bridge between AI host applications (like Claude) and users' local Rhino/Grasshopper instances through WebSocket connections.
 
 **IMPORTANT: This is proprietary software owned by Reer, Inc. All rights reserved.**
 
-## Project Status & Direction
+## Current Implementation
 
-This repository contains two visions for the RhinoMCP server:
+This repository contains a **Python-based FastMCP server** that provides remote connectivity to Rhino instances. The server enables AI applications to interact with Rhino through a comprehensive set of MCP tools, supporting both direct TCP connections and remote WebSocket connections.
 
-1.  **Current Implementation (legacy Python implementation for local development)**: The existing codebase in `/local_rhino_mcp` is a Python-based implementation designed to run locally and connects Claude desktop to Rhino through stdio. It is the functional basis of the current system.
-2.  **Proposed Architecture (Node.js on GCP)**: The documents in the `/docs` folder outline a detailed plan to migrate the server to a more scalable, cloud-native architecture using Node.js/TypeScript on Google Cloud Platform (GCP).
+### Key Features
+- **License-based Authentication**: Secure connections with hardware fingerprinting
+- **Real-time WebSocket Communication**: Persistent connections to Rhino instances
+- **Comprehensive MCP Tool Suite**: 13+ tools for complete Rhino interaction
+- **Visual Feedback**: Viewport capture and image processing
+- **Unit-aware Operations**: Automatic scaling based on document units
+- **Session Management**: Multi-user, multi-instance support
 
-This `README` primarily reflects the **Proposed Architecture**, as it represents the future direction of the project.
+## System Architecture
 
-## Proposed System Architecture (Node.js on GCP)
+The current implementation consists of three core components:
 
-The future architecture is designed for high scalability and security, consisting of three core components:
+1. **AI Host Applications**: External applications (Claude Desktop, custom AI assistants) that send MCP commands
+2. **RhinoMCP Remote Server**: Python FastMCP server that manages WebSocket connections, authentication, and message routing
+3. **Rhino Plugin**: C#/.NET plugin running in Rhino that executes CAD commands and responds via WebSocket
 
-1.  **Host Application**: An external application (e.g., Reer's AI Assistant) that sends MCP commands.
-2.  **RhinoMCP Server**: A Node.js/TypeScript server on GCP that manages WebSockets, auth, and message routing.
-3.  **Rhino Plugin**: The client-side Python plugin running in Rhino that executes CAD commands.
-
-The server will be built on Google Cloud Platform, leveraging the following services:
-- **Google Cloud Run**: For scalable, containerized application hosting.
-- **Google Memorystore (Redis)**: For session management and state.
-- **Google Cloud SQL (PostgreSQL)**: For persistent user and project data.
-
-### Technology Stack (Corrected)
+### Technology Stack
 
 - **Backend**: Python 3.9+ with FastMCP SDK
-- **WebSocket Library**: FastMCP's built-in WebSocket support (with additional Python WebSocket libraries as needed)
-- **Database ORM**: SQLAlchemy or async alternatives (e.g., `databases` + `asyncpg`)
-- **Authentication**: JWT with OAuth 2.0
-- **Containerization**: Docker
+- **WebSocket Communication**: Native WebSocket support with persistent connections
+- **Session Management**: In-memory storage with Redis-compatible interface
+- **Authentication**: License-based with hardware fingerprinting
+- **Image Processing**: Base64 encoding/decoding for viewport captures
+- **Logging**: Structured logging for debugging and monitoring
 
 ```mermaid
 graph TD
     subgraph "User's Local Machine"
-        RhinoPlugin["Rhino 3D Plugin<br/>(Python Client)"]
+        RhinoPlugin["Rhino MCP Plugin<br/>(C#/.NET)"]
+        RhinoApp[("Rhino 3D Application")]
     end
 
-    subgraph "Google Cloud Platform (Proposed)"
-        Server["RhinoMCP Server<br/>(Node.js on Cloud Run)"]
-        Redis["Memorystore (Redis)<br/>(Session & State)"]
-        Postgres["Cloud SQL (PostgreSQL)<br/>(User & Project Data)"]
+    subgraph "Remote Server (Current)"
+        Server["RhinoMCP Remote Server<br/>(Python FastMCP)"]
+        SessionMgr["Session Manager<br/>(In-Memory)"]
+        LicenseMgr["License Manager<br/>(Hardware Fingerprinting)"]
     end
 
-    HostApp["Host Applications<br/>(e.g., AI Assistants)"] -- "MCP Commands (JSON-RPC)" --> Server
+    subgraph "AI Applications"
+        Claude["Claude Desktop"]
+        CustomAI["Custom AI Apps"]
+    end
+
+    Claude -- "MCP Commands (JSON-RPC)" --> Server
+    CustomAI -- "MCP Commands (JSON-RPC)" --> Server
     Server -- "WebSocket (WSS)" --> RhinoPlugin
-    RhinoPlugin -- "Executes RhinoScript" --> Rhino3D[("Rhino 3D")]
-    Server -- "Manages State" --> Redis
-    Server -- "Stores Metadata" --> Postgres
+    RhinoPlugin -- "Executes Commands<br/>Returns Data" --> RhinoApp
+    Server -- "Manages Sessions" --> SessionMgr
+    Server -- "Validates Licenses" --> LicenseMgr
 ```
 
-## Features
+## MCP Tools Available
 
-- **Two-way communication**: Connect AI assistants to Rhino via a WebSocket server.
-- **Object & Layer Management**: Create, modify, and manage 3D objects and layers in Rhino.
-- **Scene Inspection**: Get detailed information and screenshots from the current Rhino scene.
-- **Code Execution**: Run arbitrary Python code in Rhino remotely.
-- **Multi-Instance Support**: Manage connections to multiple Rhino instances per user.
+The server provides 13+ comprehensive MCP tools for complete Rhino interaction:
 
-## Local Development (for proposed Node.js server)
+### Scene Information
+- **`get_rhino_scene_info`**: Get document info, units, layers, and object counts
+- **`get_rhino_objects_info`**: Retrieve detailed object information with attributes
+- **`get_rhino_selected_objects`**: Get information about currently selected objects
 
-The following steps are for setting up the **future** Node.js development environment.
+### Object Management
+- **`create_rhino_basic_objects`**: Create geometric primitives (box, sphere, cylinder, etc.)
+- **`select_rhino_objects`**: Select objects by various criteria (layer, type, name)
+- **`modify_rhino_objects`**: Apply transformations with chained operations:
+  - Rotate, translate, scale
+  - Change colors and properties
+  - Sequential or combined execution modes
+- **`delete_rhino_objects`**: Remove objects from document
 
-1.  **Prerequisites**: [Docker](https://www.docker.com/) and [Node.js](https://nodejs.org/) are required.
-2.  **Clone & Install**:
-    ```bash
-    git clone https://github.com/your-repo/rhino_mcp_remote.git
-    cd rhino_mcp_remote
-    # npm install # (Will be enabled once package.json is added)
-    ```
-3.  **Run Docker Environment**:
-    ```bash
-    # docker-compose up --build # (Will be enabled once docker-compose.yml is added)
-    ```
+### Metadata Management
+- **`add_rhino_objects_metadata`**: Add names and descriptions to objects
+- **`update_rhino_objects_metadata`**: Update existing object metadata
+
+### Layer Management
+- **`create_rhino_layers`**: Create and configure layers with colors and properties
+- **`delete_rhino_layers`**: Remove layers from document
+
+### Visual Feedback
+- **`capture_rhino_viewport`**: Take screenshots of the Rhino viewport
+  - Layer-specific capture
+  - Automatic image encoding/decoding
+  - Configurable resolution and annotations
+
+### Code Execution
+- **`execute_rhinoscript`**: Run Python code using rhinoscriptsyntax
+  - Full access to Rhino API
+  - Error handling and output capture
+  - Support for complex geometric operations
+
+### Advanced Features
+- **Unit-aware Operations**: Automatic scaling based on document units (mm, m, inches, feet)
+- **Chained Transformations**: Sequential operations (rotate → translate → recolor)
+- **Robust Error Handling**: Graceful fallbacks and informative error messages
+- **Object ID Management**: Handles both ID and name-based object references
+
+## Quick Start
+
+### Prerequisites
+- **Python 3.9+** with pip
+- **Rhino 7/8** with RhinoMCP plugin installed
+- **Valid License** for remote connections
+
+### Server Setup
+```bash
+# Clone repository
+git clone https://github.com/reer-ide/rhino_mcp_remote.git
+cd rhino_mcp_remote
+
+# Create a virtual environment
+uv venv
+
+# Install dependencies 
+uv sync
+
+# Start the remote server
+python -m remote_server.server
+```
+
+### Plugin Connection
+1. Open Rhino with the RhinoMCP plugin loaded (see tests/TESTS.md for more details)
+2. Run `ReerStart` command in Rhino
+3. Choose "remote" connection type
+4. Enter server URL: `http://127.0.0.1:8080`
+5. The plugin will establish a WebSocket connection
+
+## Testing
+
+The project includes comprehensive integration tests that verify the complete workflow between AI applications, the remote server, and Rhino instances.
+
+### Quick Test Run
+```bash
+# Full integration test (requires manual setup)
+python tests/test_integration_connected_flow.py
+
+# Quick tool test (uses existing session)
+python tests/test_integration_connected_flow.py quick
+```
+
+### Test Features
+
+#### Comprehensive Workflow Testing
+The integration test covers a complete 12-phase workflow:
+
+1. **Scene Assessment** - Extract document units and baseline state
+2. **Infrastructure Setup** - Create dedicated test layer
+3. **Object Creation** - Generate scaled geometric objects (box, sphere, cylinder)
+4. **Metadata Management** - Add and update object metadata
+5. **Information Retrieval** - Query all objects with attributes
+6. **Selection & Modification** - Select objects and apply chained transformations
+7. **Viewport Capture** - Take and save screenshot with auto-decode
+8. **Script Execution** - Run complex Python script (spiral curve creation)
+9. **Visual Verification** - Interactive inspection before cleanup
+10. **Final Assessment** - Compare end state with initial state
+11. **Cleanup** - Remove all test objects and layers
+12. **Verification** - Ensure complete cleanup
+
+#### Unit-Aware Object Scaling
+Objects are automatically scaled based on document units for optimal visibility:
+
+| Units | Scale Factor | Example Box Size |
+|-------|-------------|------------------|
+| Millimeters | 100x | 500mm × 300mm × 200mm |
+| Meters | 0.1x | 0.5m × 0.3m × 0.2m |
+| Inches/Feet | 10x | 50in × 30in × 20in |
+
+#### Interactive Visual Verification
+Before cleanup, the test pauses for manual inspection:
+
+```
+👁️ VISUAL INSPECTION REQUIRED
+📋 Expected objects on layer 'IntegrationTest_Layer' (scaled 100.0x for Millimeters):
+  • TestBox_1 - dimensions: 500.0 x 300.0 x 200.0 - should be rotated and moved
+  • TestSphere_1 - radius: 200.0 at (1000.0, 0, 0) - should be rotated and moved
+  • TestCylinder_1 - radius: 150.0, height: 400.0 at (2000.0, 0, 0)
+  • IntegrationTest_Spiral - A spiral curve starting around (3000.0, 0, 0) area
+
+🎨 Visual checks:
+  • Objects should be visible on the integration test layer
+  • Box and sphere should have blue color (100, 200, 255) from modification
+  • Objects should be displaced from their original positions due to rotation + translation
+
+✅ Can you see the expected objects in Rhino? (y/n/s):
+```
+
+#### Automatic Screenshot Capture
+Viewport images are automatically captured, decoded, and saved:
+```
+📸 Viewport captured (250ms)
+💾 Viewport image saved: viewport_capture_20250723_143022.png
+📂 Full path: C:\path\to\tests\viewport_capture_20250723_143022.png
+```
+
+#### Test Results and Artifacts
+- **JSON Report**: `integration_test_results.json` with detailed results
+- **Screenshots**: Timestamped PNG files of viewport captures  
+- **Console Logs**: Comprehensive execution logging
+- **Performance Metrics**: Response times for each operation
+
+### Example Test Output
+```
+🧪 Running Comprehensive MCP Tool Tests
+Following logical workflow: Scene Info → Layer → Objects → Metadata → Modify → Script → Cleanup
+
+📋 PHASE 1: Initial Scene Assessment
+   ✅ Initial scene info retrieved (151ms)
+   📏 Document units: Millimeters
+   📐 Scaling objects by 100.0x for millimeter units
+
+📦 PHASE 3: Object Creation
+   ✅ Test objects created (211ms)
+   📝 Captured object ID: 64ad718e-0fda-43de-9777-a62169803e97
+   📊 Total object IDs captured: 3
+
+🎯 PHASE 6: Object Selection and Modification
+   ✅ Objects selected by layer (49ms)
+   ✅ Objects modified with chained operations (Sequential execution) (187ms)
+
+📸 PHASE 7: Viewport Capture
+   ✅ Viewport captured (285ms)
+   💾 Viewport image saved: viewport_capture_20250723_143022.png
+
+📊 INTEGRATION TEST RESULTS
+✅ Passed: 13
+❌ Failed: 0  
+📈 Success Rate: 100.0%
+```
+
+For detailed testing documentation, see [TEST.md](TEST.md).
 
 ## Contributing
 

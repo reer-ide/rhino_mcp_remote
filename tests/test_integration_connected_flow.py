@@ -9,6 +9,7 @@ import aiohttp
 import json
 import time
 import uuid
+import base64
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 import sys
@@ -392,137 +393,510 @@ class ConnectedFlowTester:
             }
     
     async def run_mcp_tool_tests(self) -> Dict[str, Any]:
-        """Run comprehensive MCP tool tests with real Rhino responses"""
+        """Run comprehensive MCP tool tests following a logical workflow"""
         print("\n" + "="*80)
-        print("🧪 Running MCP Tool Tests")
+        print("🧪 Running Comprehensive MCP Tool Tests")
         print("="*80)
-        
-        # Test cases matching the actual C# function implementations
-        test_cases = [
-            {
-                "name": "get_rhino_scene_info",
-                "params": {},
-                "expected_fields": ["name", "total_objects", "total_layers", "layers"],
-                "description": "Get scene information"
-            },
-            {
-                "name": "get_rhino_objects_info", 
-                "params": {"include_attributes": True},
-                "expected_fields": ["objects", "total_count"],
-                "description": "Get objects information with metadata"
-            },
-            {
-                "name": "get_rhino_selected_objects",
-                "params": {},
-                "expected_fields": ["selected_objects", "count"],
-                "description": "Get selected objects"
-            },
-            {
-                "name": "create_rhino_basic_objects",
-                "params": {
-                    "objects": [
-                        {
-                            "geometry_type": "point",
-                            "point": {"x": 0, "y": 0, "z": 0},
-                            "name": "Integration Test Point"
-                        }
-                    ]
-                },
-                "expected_fields": ["status", "objects_created", "count"],
-                "description": "Create basic objects"
-            },
-            {
-                "name": "add_rhino_objects_metadata",
-                "params": {
-                    "object_ids": ["will_be_replaced"],  # Will use created object IDs
-                    "name": "Test Object",
-                    "description": "Created during integration testing"
-                },
-                "expected_fields": ["status"],
-                "description": "Add metadata to objects"
-            },
-            {
-                "name": "create_rhino_layers",
-                "params": {
-                    "layers": [
-                        {
-                            "name": "Integration_Test_Layer",
-                            "color": {"r": 255, "g": 100, "b": 50},
-                            "is_visible": True
-                        }
-                    ]
-                },
-                "expected_fields": ["status"],
-                "description": "Create layers"
-            },
-            {
-                "name": "select_rhino_objects",
-                "params": {
-                    "filters": {"geometry_type": "Point"}
-                },
-                "expected_fields": ["status"],
-                "description": "Select objects by type"
-            },
-            {
-                "name": "capture_rhino_viewport",
-                "params": {
-                    "layer": None,
-                    "show_annotations": True,
-                    "max_size": 800
-                },
-                "expected_fields": None,  # Returns Image object, not JSON fields
-                "description": "Capture viewport"
-            }
-        ]
+        print("Following logical workflow: Scene Info → Layer → Objects → Metadata → Modify → Script → Cleanup")
         
         results = {"passed": 0, "failed": 0, "tests": []}
-        created_object_ids = []
         
-        for test_case in test_cases:
-            print(f"\n🔧 Testing {test_case['name']}: {test_case['description']}")
+        # Shared test data
+        test_layer_name = "IntegrationTest_Layer"
+        created_object_ids = []
+        created_layer_ids = []
+        document_units = "Unknown"
+        unit_scale_factor = 1.0  # Default scale factor
+        
+        # Phase 1: Initial Scene State
+        print(f"\n📋 PHASE 1: Initial Scene Assessment")
+        
+        test_1 = await self.test_mcp_tool_call(
+            "get_rhino_scene_info",
+            {},
+            ["document_name", "total_objects", "total_layers", "layers"]
+        )
+        results['tests'].append(test_1)
+        if test_1['status'] == 'PASS':
+            results['passed'] += 1
+            print(f"   ✅ Initial scene info retrieved ({test_1.get('duration_ms', 0)}ms)")
             
-            # Special handling for metadata test - use created object IDs
-            if test_case['name'] == 'add_rhino_objects_metadata' and created_object_ids:
-                test_case['params']['object_ids'] = created_object_ids[:1]  # Use first created object
-            
-            result = await self.test_mcp_tool_call(
-                test_case['name'],
-                test_case['params'],
-                test_case['expected_fields']
-            )
-            
-            # Store created object IDs for later tests
-            if (test_case['name'] == 'create_rhino_basic_objects' and 
-                result['status'] == 'PASS' and 
-                'response' in result):
-                
-                # Handle response that might be a JSON string
-                response_data = result['response']
+            # Extract units and calculate scale factor for object dimensions
+            if 'response' in test_1:
+                response_data = test_1['response']
                 if isinstance(response_data, str):
                     try:
                         response_data = json.loads(response_data)
                     except json.JSONDecodeError:
-                        print(f"⚠️  Could not parse response as JSON: {response_data}")
                         response_data = {}
                 
+                if 'document' in response_data and 'units' in response_data['document']:
+                    document_units = response_data['document']['units']
+                    print(f"   📏 Document units: {document_units}")
+                    
+                    # Scale factor based on units (assuming small objects need scaling up)
+                    if document_units.lower() == 'millimeters':
+                        unit_scale_factor = 100.0  # Scale up by 100 for visibility
+                        print(f"   📐 Scaling objects by {unit_scale_factor}x for millimeter units")
+                    elif document_units.lower() == 'meters':
+                        unit_scale_factor = 0.1  # Scale down for meter units
+                        print(f"   📐 Scaling objects by {unit_scale_factor}x for meter units")
+                    elif document_units.lower() in ['inches', 'feet']:
+                        unit_scale_factor = 10.0  # Moderate scale for imperial
+                        print(f"   📐 Scaling objects by {unit_scale_factor}x for imperial units")
+                    else:
+                        print(f"   📐 Using default scale (1.0x) for units: {document_units}")
+        else:
+            results['failed'] += 1
+            print(f"   ❌ Failed to get scene info: {test_1.get('error', 'Unknown')}")
+        
+        # Phase 2: Create Testing Layer
+        print(f"\n🏗️  PHASE 2: Testing Infrastructure Setup")
+        
+        test_2 = await self.test_mcp_tool_call(
+            "create_rhino_layers",
+            {
+                "layers": [
+                    {
+                        "name": test_layer_name,
+                        "color": [255, 100, 50],
+                        "is_visible": True,
+                        "description": "Integration test layer"
+                    }
+                ]
+            },
+            ["status", "layers_created"]
+        )
+        results['tests'].append(test_2)
+        if test_2['status'] == 'PASS':
+            results['passed'] += 1
+            print(f"   ✅ Testing layer created ({test_2.get('duration_ms', 0)}ms)")
+            # Extract layer IDs for cleanup
+            if 'response' in test_2:
+                response_data = test_2['response']
+                if isinstance(response_data, str):
+                    try:
+                        response_data = json.loads(response_data)
+                    except json.JSONDecodeError:
+                        response_data = {}
+                layers_created = response_data.get('layers_created', [])
+                for layer in layers_created:
+                    if 'id' in layer:
+                        created_layer_ids.append(layer['id'])
+        else:
+            results['failed'] += 1
+            print(f"   ❌ Failed to create layer: {test_2.get('error', 'Unknown')}")
+        
+        # Phase 3: Create Test Objects
+        print(f"\n📦 PHASE 3: Object Creation")
+        
+        test_3 = await self.test_mcp_tool_call(
+            "create_rhino_basic_objects",
+            {
+                "objects": [
+                    {
+                        "type": "BOX",
+                        "name": "TestBox_1",
+                        "layer": test_layer_name,
+                        "params": {
+                            "center": [0, 0, 0],
+                            "width": 5 * unit_scale_factor,
+                            "length": 3 * unit_scale_factor,
+                            "height": 2 * unit_scale_factor
+                        }
+                    },
+                    {
+                        "type": "SPHERE",
+                        "name": "TestSphere_1", 
+                        "layer": test_layer_name,
+                        "params": {
+                            "center": [10 * unit_scale_factor, 0, 0],
+                            "radius": 2 * unit_scale_factor
+                        }
+                    },
+                    {
+                        "type": "CYLINDER",
+                        "name": "TestCylinder_1",
+                        "layer": test_layer_name,
+                        "params": {
+                            "center": [20 * unit_scale_factor, 0, 0],
+                            "radius": 1.5 * unit_scale_factor,
+                            "height": 4 * unit_scale_factor
+                        }
+                    }
+                ]
+            },
+            ["status", "objects_created", "count"]
+        )
+        results['tests'].append(test_3)
+        if test_3['status'] == 'PASS':
+            results['passed'] += 1
+            print(f"   ✅ Test objects created ({test_3.get('duration_ms', 0)}ms)")
+            # Extract object IDs for later tests
+            if 'response' in test_3:
+                response_data = test_3['response']
+                if isinstance(response_data, str):
+                    try:
+                        response_data = json.loads(response_data)
+                    except json.JSONDecodeError:
+                        response_data = {}
                 objects_created = response_data.get('objects_created', [])
                 for obj in objects_created:
-                    if 'id' in obj:
-                        created_object_ids.append(obj['id'])
-            
-            # Print result
-            if result['status'] == 'PASS':
-                print(f"   ✅ PASS ({result.get('duration_ms', 0)}ms)")
+                    # Try both 'id' and 'object_id' fields
+                    obj_id = obj.get('id') or obj.get('object_id')
+                    if obj_id:
+                        created_object_ids.append(obj_id)
+                        print(f"   📝 Captured object ID: {obj_id}")
+                
+                # Debug: print response structure if no objects found
+                if not created_object_ids:
+                    print(f"   ⚠️  No object IDs found in response. Response structure: {response_data}")
+                    # Try alternative response formats
+                    if 'results' in response_data:
+                        for obj in response_data['results'].values() if isinstance(response_data['results'], dict) else response_data['results']:
+                            obj_id = obj.get('id') or obj.get('object_id')
+                            if obj_id:
+                                created_object_ids.append(obj_id)
+                                print(f"   📝 Found object ID in results: {obj_id}")
+                
+                print(f"   📊 Total object IDs captured: {len(created_object_ids)}")
+        else:
+            results['failed'] += 1
+            print(f"   ❌ Failed to create objects: {test_3.get('error', 'Unknown')}")
+        
+        # Phase 4: Add Metadata to Objects
+        print(f"\n🏷️  PHASE 4: Metadata Management")
+        
+        if created_object_ids:
+            test_4 = await self.test_mcp_tool_call(
+                "add_rhino_objects_metadata",
+                {
+                    "object_ids": [created_object_ids[0]],
+                    "name": "TestObject_Updated",
+                    "description": "Integration test geometry with metadata"
+                },
+                ["status", "objects_processed"]
+            )
+            results['tests'].append(test_4)
+            if test_4['status'] == 'PASS':
                 results['passed'] += 1
+                print(f"   ✅ Metadata added to objects ({test_4.get('duration_ms', 0)}ms)")
             else:
-                print(f"   ❌ FAIL: {result.get('error', 'Unknown error')}")
                 results['failed'] += 1
-            
-            results['tests'].append(result)
+                print(f"   ❌ Failed to add metadata: {test_4.get('error', 'Unknown')}")
+        else:
+            print("   ⚠️  No object IDs available, skipping metadata test...")
+            # Note: add_rhino_objects_metadata requires object IDs, not names
+        
+        # Phase 5: Update Metadata
+        if created_object_ids:
+            test_5 = await self.test_mcp_tool_call(
+                "update_rhino_objects_metadata",
+                {
+                    "object_ids": [created_object_ids[0]],
+                    "name": "TestObject_Final",
+                    "description": "Updated during integration testing"
+                },
+                ["status", "objects_processed"]
+            )
+            results['tests'].append(test_5)
+            if test_5['status'] == 'PASS':
+                results['passed'] += 1
+                print(f"   ✅ Metadata updated ({test_5.get('duration_ms', 0)}ms)")
+            else:
+                results['failed'] += 1
+                print(f"   ❌ Failed to update metadata: {test_5.get('error', 'Unknown')}")
+        else:
+            print("   ⚠️  No object IDs available, skipping update metadata test...")
+            # Note: update_rhino_objects_metadata requires object IDs, not names
+        
+        # Phase 6: Get Objects Info
+        print(f"\n📊 PHASE 5: Information Retrieval")
+        
+        test_6 = await self.test_mcp_tool_call(
+            "get_rhino_objects_info",
+            {"get_all_objects": True, "include_attributes": True},
+            ["objects", "total_count"]
+        )
+        results['tests'].append(test_6)
+        if test_6['status'] == 'PASS':
+            results['passed'] += 1
+            print(f"   ✅ Objects info retrieved ({test_6.get('duration_ms', 0)}ms)")
+        else:
+            results['failed'] += 1
+            print(f"   ❌ Failed to get objects info: {test_6.get('error', 'Unknown')}")
+        
+        # Phase 7: Selection and Modification
+        print(f"\n🎯 PHASE 6: Object Selection and Modification")
+        
+        # Select objects by layer
+        test_7a = await self.test_mcp_tool_call(
+            "select_rhino_objects",
+            {"filters": {"layer": test_layer_name, "geometry_type": "Brep"}},
+            ["status", "selected_count"]
+        )
+        results['tests'].append(test_7a)
+        if test_7a['status'] == 'PASS':
+            results['passed'] += 1
+            print(f"   ✅ Objects selected by layer ({test_7a.get('duration_ms', 0)}ms)")
+        else:
+            results['failed'] += 1
+            print(f"   ❌ Failed to select objects: {test_7a.get('error', 'Unknown')}")
+        
+        # Get information about currently selected objects
+        test_7a2 = await self.test_mcp_tool_call(
+            "get_rhino_selected_objects",
+            {"include_lights": False, "include_grips": False},
+            ["selected_objects", "count"]
+        )
+        results['tests'].append(test_7a2)
+        if test_7a2['status'] == 'PASS':
+            results['passed'] += 1
+            print(f"   ✅ Selected objects info retrieved ({test_7a2.get('duration_ms', 0)}ms)")
+        else:
+            results['failed'] += 1
+            print(f"   ❌ Failed to get selected objects info: {test_7a2.get('error', 'Unknown')}")
+        
+        # Modify objects with chained operations
+        if created_object_ids:
+            test_7b = await self.test_mcp_tool_call(
+                "modify_rhino_objects",
+                {
+                    "targets": [
+                        {"id": created_object_ids[0]},
+                        {"name": "TestSphere_1"}
+                    ],
+                    "operations": [
+                        {
+                            "type": "rotate",
+                            "angle": 45,
+                            "axis": [0, 0, 1],
+                            "center": "auto"
+                        },
+                        {
+                            "type": "translate",
+                            "vector": [2 * unit_scale_factor, 2 * unit_scale_factor, 0]
+                        },
+                        {
+                            "type": "recolor",
+                            "color": [100, 200, 255]
+                        }
+                    ],
+                    "execution": "sequential"
+                },
+                ["status", "objects_modified", "execution_mode"]
+            )
+            results['tests'].append(test_7b)
+            if test_7b['status'] == 'PASS':
+                results['passed'] += 1
+                print(f"   ✅ Objects modified with chained operations ({test_7b.get('duration_ms', 0)}ms)")
+            else:
+                results['failed'] += 1
+                print(f"   ❌ Failed to modify objects: {test_7b.get('error', 'Unknown')}")
+        else:
+            # Fallback: try to modify by name only if no object IDs were captured
+            print("   ⚠️  No object IDs available, attempting modify by object names only...")
+            test_7b = await self.test_mcp_tool_call(
+                "modify_rhino_objects",
+                {
+                    "targets": [
+                        {"name": "TestBox_1"},
+                        {"name": "TestSphere_1"}
+                    ],
+                    "operations": [
+                        {
+                            "type": "rotate",
+                            "angle": 45,
+                            "axis": [0, 0, 1],
+                            "center": "auto"
+                        },
+                        {
+                            "type": "translate",
+                            "vector": [2 * unit_scale_factor, 2 * unit_scale_factor, 0]
+                        },
+                        {
+                            "type": "recolor",
+                            "color": [100, 200, 255]
+                        }
+                    ],
+                    "execution": "sequential"
+                },
+                ["status", "objects_modified", "execution_mode"]
+            )
+            results['tests'].append(test_7b)
+            if test_7b['status'] == 'PASS':
+                results['passed'] += 1
+                print(f"   ✅ Objects modified with chained operations (by name) ({test_7b.get('duration_ms', 0)}ms)")
+            else:
+                results['failed'] += 1
+                print(f"   ❌ Failed to modify objects by name: {test_7b.get('error', 'Unknown')}")
+        
+        # Phase 8: Viewport Capture
+        print(f"\n📸 PHASE 7: Viewport Capture")
+        
+        test_8 = await self.test_mcp_tool_call(
+            "capture_rhino_viewport",
+            {
+                "layer": test_layer_name,
+                "show_annotations": True,
+                "max_size": 800
+            },
+            None  # Returns Image object
+        )
+        results['tests'].append(test_8)
+        if test_8['status'] == 'PASS':
+            results['passed'] += 1
+            print(f"   ✅ Viewport captured ({test_8.get('duration_ms', 0)}ms)")
+        else:
+            results['failed'] += 1
+            print(f"   ❌ Failed to capture viewport: {test_8.get('error', 'Unknown')}")
+        
+        # Phase 9: Complex Geometry via Script
+        print(f"\n📜 PHASE 8: Script Execution for Complex Geometry")
+        
+        test_9 = await self.test_mcp_tool_call(
+            "execute_rhinoscript",
+            {
+                "code": f'''
+import rhinoscriptsyntax as rs
+import math
+
+# Create a complex spiral curve on test layer (scaled for units)
+points = []
+scale = {unit_scale_factor}
+for i in range(101):
+    t = i * 0.2
+    x = (30 + 3 * math.cos(t) * (1 + 0.1 * t)) * scale
+    y = (3 * math.sin(t) * (1 + 0.1 * t)) * scale
+    z = (0.1 * t * t) * scale
+    points.append([x, y, z])
+
+# Create curve from points
+curve_id = rs.AddCurve(points)
+if curve_id:
+    rs.ObjectLayer(curve_id, "{test_layer_name}")
+    rs.ObjectName(curve_id, "IntegrationTest_Spiral")
+    print("Created spiral curve: " + str(curve_id) + " (scale: " + str(scale) + ")")
+else:
+    print("Failed to create spiral curve")
+'''
+            },
+            ["status", "output"]
+        )
+        results['tests'].append(test_9)
+        if test_9['status'] == 'PASS':
+            results['passed'] += 1
+            print(f"   ✅ Complex geometry script executed ({test_9.get('duration_ms', 0)}ms)")
+        else:
+            results['failed'] += 1
+            print(f"   ❌ Failed to execute script: {test_9.get('error', 'Unknown')}")
+        
+        # Phase 10: Final Scene Info
+        print(f"\n📋 PHASE 9: Final Scene Assessment")
+        
+        test_10 = await self.test_mcp_tool_call(
+            "get_rhino_scene_info",
+            {},
+            ["document_name", "total_objects", "total_layers"]
+        )
+        results['tests'].append(test_10)
+        if test_10['status'] == 'PASS':
+            results['passed'] += 1
+            print(f"   ✅ Final scene info retrieved ({test_10.get('duration_ms', 0)}ms)")
+        else:
+            results['failed'] += 1
+            print(f"   ❌ Failed to get final scene info: {test_10.get('error', 'Unknown')}")
+        
+        # Phase 11: Visual Inspection Before Cleanup
+        print(f"\n👁️  PHASE 10: Visual Inspection")
+        print("="*60)
+        print("🔍 VISUAL INSPECTION REQUIRED")
+        print("="*60)
+        print()
+        print("Please check your Rhino viewport now to verify the following objects were created:")
+        print()
+        print(f"📋 Expected objects on layer '{test_layer_name}' (scaled {unit_scale_factor}x for {document_units}):")
+        print(f"  • TestBox_1 - A box at origin (0,0,0) - dimensions: {5*unit_scale_factor} x {3*unit_scale_factor} x {2*unit_scale_factor} - should be rotated and moved")
+        print(f"  • TestSphere_1 - A sphere at ({10*unit_scale_factor},0,0) - radius: {2*unit_scale_factor} - should be rotated and moved")  
+        print(f"  • TestCylinder_1 - A cylinder at ({20*unit_scale_factor},0,0) - radius: {1.5*unit_scale_factor}, height: {4*unit_scale_factor}")
+        print(f"  • IntegrationTest_Spiral - A spiral curve starting around ({30*unit_scale_factor}, 0, 0) area (if script executed successfully)")
+        print()
+        print("🎨 Visual checks:")
+        print("  • Objects should be visible on the integration test layer")
+        print("  • Box and sphere should have blue color (100, 200, 255) from modification")
+        print("  • Objects should be displaced from their original positions due to rotation + translation")
+        print("  • Spiral curve should be visible at around (30, 0, 0) area")
+        print()
+        
+        if created_object_ids:
+            print(f"📝 Created object IDs for reference:")
+            for i, obj_id in enumerate(created_object_ids):
+                print(f"  {i+1}. {obj_id}")
+        else:
+            print("⚠️  No object IDs were captured (objects may still exist)")
+        
+        print()
+        print("💡 Tip: You can use 'SelAll' command in Rhino to see all objects")
+        print(f"💡 Tip: You can use 'SelLayer {test_layer_name}' to select only test objects")
+        print()
+        
+        while True:
+            user_input = input("✅ Can you see the expected objects in Rhino? (y/n/s): ").strip().lower()
+            if user_input in ['y', 'yes']:
+                print("✅ Visual inspection confirmed! Proceeding with cleanup...")
+                break
+            elif user_input in ['s', 'skip']:
+                print("⏭️  Skipping visual inspection. Proceeding with cleanup...")
+                break
+            elif user_input in ['n', 'no']:
+                print("❌ Objects not visible as expected.")
+                retry = input("Would you like to continue with cleanup anyway? (y/n): ").strip().lower()
+                if retry in ['y', 'yes']:
+                    print("⚠️  Proceeding with cleanup despite visual issues...")
+                    break
+                else:
+                    print("🛑 Test stopped. You can investigate the Rhino document manually.")
+                    print("   Run the test again when ready, or use the quick mode for cleanup.")
+                    return results
+            else:
+                print("Please enter 'y' for yes, 'n' for no, or 's' to skip inspection.")
+        
+        # Phase 12: Cleanup - Delete Objects
+        print(f"\n🧹 PHASE 11: Cleanup Operations")
+        
+        test_11 = await self.test_mcp_tool_call(
+            "delete_rhino_objects",
+            {"all": True},
+            ["status", "objects_deleted", "count"]
+        )
+        results['tests'].append(test_11)
+        if test_11['status'] == 'PASS':
+            results['passed'] += 1
+            print(f"   ✅ Test objects deleted ({test_11.get('duration_ms', 0)}ms)")
+        else:
+            results['failed'] += 1
+            print(f"   ❌ Failed to delete objects: {test_11.get('error', 'Unknown')}")
+        
+        # Phase 13: Cleanup - Delete Layer
+        if test_layer_name:
+            test_12 = await self.test_mcp_tool_call(
+                "delete_rhino_layers",
+                {"layers": [{"name": test_layer_name}]},
+                ["status", "layers_deleted"]
+            )
+            results['tests'].append(test_12)
+            if test_12['status'] == 'PASS':
+                results['passed'] += 1
+                print(f"   ✅ Testing layer deleted ({test_12.get('duration_ms', 0)}ms)")
+            else:
+                results['failed'] += 1
+                print(f"   ❌ Failed to delete layer: {test_12.get('error', 'Unknown')}")
+        
+        print(f"\n🎉 Cleanup completed! Rhino document should be back to original state.")
+        
+        # Store all results
+        for result in results['tests']:
             self.test_results.append(result)
-            
-            # Small delay between tests
-            await asyncio.sleep(0.5)
         
         return results
     

@@ -13,7 +13,7 @@ def register_tools(mcp, connection_manager: ConnectionManager):
     """Register execution tools with the MCP server."""
     
     @mcp.tool()
-    async def execute_rhino_code(session_id: str, code: str) -> str:
+    async def execute_rhinoscript(session_id: str, code: str) -> str:
         """Execute arbitrary Python code in Rhino.
         
         IMPORTANT NOTES FOR CODE EXECUTION:

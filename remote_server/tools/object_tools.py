@@ -106,35 +106,44 @@ def register_tools(mcp, connection_manager: ConnectionManager):
             return handle_error("deleting objects", session_id, e)
 
     @mcp.tool()
-    async def modify_rhino_objects(session_id: str, objects: List[Dict[str, Any]], all: bool = False) -> str:
-        """Apply geometric transformations to objects in Rhino document.
+    async def modify_rhino_objects(session_id: str, targets: List[Dict[str, Any]], operations: List[Dict[str, Any]], execution: str = "combined") -> str:
+        """Apply geometric transformations and attribute changes to objects in Rhino document.
         
-        This function applies transformations like move, rotate, scale to objects.
-        Each object modification should specify the target object and transformation.
+        This function supports chained operations with flexible targeting and execution modes.
+        Operations can be applied as a single combined transformation or sequentially.
         
-        Available transformations:
-        - move: Translate object by vector
-        - rotate: Rotate object around axis  
-        - scale: Scale object by factor(s)
-        - mirror: Mirror object across plane
+        Available operation types:
+        - translate: Move object by vector [x, y, z]
+        - rotate: Rotate object by angle (degrees) around axis [x, y, z] 
+        - scale: Scale object by factor with optional center point
+        - rename: Change object name
+        - recolor: Change object color [r, g, b]
         
         Args:
             session_id: The session ID of the connected Rhino instance
-            objects: List of modification operations, each containing:
-                - target: Object identifier (id or name)
-                - operation: Transformation type ("move", "rotate", "scale", "mirror")
-                - params: Operation-specific parameters
-            all: If true, applies transformations to all objects in document
+            targets: List of target objects, each containing one of:
+                - {"id": "object-guid"} - Target specific object by ID
+                - {"name": "object-name"} - Target object by name  
+                - {"all": true} - Target all objects in document
+            operations: List of operations to apply, each containing:
+                - {"type": "translate", "vector": [x, y, z]}
+                - {"type": "rotate", "angle": degrees, "axis": [x, y, z], "center": "auto|origin|[x,y,z]"}
+                - {"type": "scale", "factor": number, "center": "auto|origin|[x,y,z]"}
+                - {"type": "rename", "name": "new-name"}
+                - {"type": "recolor", "color": [r, g, b]}
+            execution: Execution mode - "combined" (default) or "sequential"
+                - "combined": All transforms applied as single matrix
+                - "sequential": Operations applied one by one in order
         
         Returns:
-            JSON string containing modification results
+            JSON string containing detailed modification results for each object
         """
         try:
             params = {
-                "objects": objects
+                "targets": targets,
+                "operations": operations,
+                "execution": execution
             }
-            if all:
-                params["all"] = True
                   
             result = await connection_manager.send_to_rhino(session_id, "modify_rhino_objects", params)
             return handle_tool_exe_response("modifying objects", session_id, result)
