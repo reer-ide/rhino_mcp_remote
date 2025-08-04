@@ -61,7 +61,7 @@ class BaseIntegrationTester:
     def print_test_summary(self, test_results: Dict[str, int]) -> bool:
         """Print test summary and return success status"""
         print("\n" + "="*60)
-        print("📊 Test Summary")
+        print("[SUMMARY] Test Summary")
         print("="*60)
         print(f"Total tests: {test_results['total']}")
         print(f"Passed: {test_results['passed']} [PASS]")
@@ -77,7 +77,7 @@ class BaseIntegrationTester:
         # Final result
         success = test_results['failed'] == 0
         if success:
-            print("\n🎉 All integration tests passed!")
+            print("\n[SUCCESS] All integration tests passed!")
         else:
             print(f"\n[WARNING] {test_results['failed']} tests failed. See details above.")
         
