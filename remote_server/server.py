@@ -10,9 +10,9 @@ from fastmcp.utilities.logging import get_logger
 
 from remote_server.config import settings
 from remote_server.dependencies import get_app_connection_manager, initialize_managers
-from remote_server.routers.health import register_health_routes
-from remote_server.routers.license import register_license_routes
-from remote_server.routers.sessions import register_session_routes
+from remote_server.api.routes.health import register_health_routes
+from remote_server.api.routes.license import register_license_routes
+from remote_server.api.routes.sessions import register_session_routes
 from remote_server.tools import rhinoscript_tools
 
 # Use FastMCP's logging system
@@ -121,7 +121,7 @@ def server_info() -> str:
             "port": settings.port,
             "debug": settings.debug,
         },
-        "active_sessions": len(_connection_manager.sessions) if _connection_manager else 0,
+        "valid_sessions": len(_connection_manager.sessions) if _connection_manager else 0,
         "active_licenses": 0,  # This would need to be implemented properly
         "features": [
             "license_registration",

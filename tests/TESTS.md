@@ -1,6 +1,6 @@
 # Remote MCP Server Tests
 
-Streamlined test suite for the Remote Rhino MCP Server with both fast unit tests and complete integration tests.
+Comprehensive test suite for the Remote Rhino MCP Server with modular unit tests and full integration tests.
 
 ## Quick Start
 
@@ -16,29 +16,44 @@ python test_mcp_runner.py
 python -m remote_server.server
 
 # 2. Install the Rhino MCP plugin
-# cd to the reer-rhino-mcp-plugin directory
-# run the following command to install the plugin
+# Build for Debug (includes all commands and dev features)
+cd reer-rhino-mcp-plugin
 dotnet build
-# the plugin will be built in the bin/Debug/net7.0/reer-rhino-mcp-plugin.rhp file
-# open vs code and launch the debugger with "Rhino 8-netcore", this will open the test rhino instance and load the plugin automatically
-# if the plugin is not loaded, you can load it through the PluginManger manually
+# Launch with VS Code debugger "Rhino 8-netcore" to auto-load plugin
 
 # 3. Run integration tests (in new terminal)
 cd rhino_mcp_remote/tests  
+
+# Full integration test (license + sessions + tools)
 python test_integration_connected_flow.py
 
-# 4. Quick tool tests (skips license/session setup)
-python tests/test_integration_connected_flow.py quick
+# Quick tool test (uses existing connected sessions) 
+python test_integration_connected_flow.py quick
+
+# Connection test only (no tool testing)
+python test_integration_connected_flow.py connection
+
+# Show help
+python test_integration_connected_flow.py help
 ```
 
-## Test Files
+## Test Structure
 
+### Unit Tests
 - **`test_all_mcp_tools.py`** - Unit tests for all 13 MCP tools (FastMCP in-memory)
 - **`test_mcp_scenarios.py`** - Workflow scenario tests  
 - **`test_mcp_runner.py`** - Master runner for unit tests
-- **`test_integration_connected_flow.py`** - End-to-end tests with real Rhino connection
-- **`run_integration_tests.py`** - Master runner for integration tests
 - **`test_tools_import.py`** - Import validation
+
+### Integration Tests (Modular)
+- **`test_integration_connected_flow.py`** - Main test runner
+- **`integration/`** - Modular test components:
+  - **`base_tester.py`** - Base class with common functionality
+  - **`license_tester.py`** - License generation and registration
+  - **`session_tester.py`** - Session creation and management
+  - **`mcp_tools_tester.py`** - Comprehensive MCP tool testing
+  - **`quick_tester.py`** - Quick tests using existing sessions
+  - **`connected_flow_tester.py`** - Main integration test orchestrator
 
 ## Integration Test Setup
 

@@ -23,7 +23,7 @@ class PersistentSession:
     user_id: str
     license_id: str
     file_path: str
-    file_hash: Optional[str]
+    document_guid: Optional[str]  # NEW: Document GUID for file identification
     created_at: datetime
     last_active: datetime
     expires_at: datetime
@@ -83,8 +83,7 @@ class ConnectionManager:
 
     # Enhanced Session Management
     
-    async def create_persistent_session(self, user_id: str, file_path: str, license_id: str, 
-                                       file_hash: str = None, file_size: int = 0) -> PersistentSession:
+    async def create_persistent_session(self, user_id: str, file_path: str, license_id: str, document_guid: Optional[str] = None) -> PersistentSession:
         """Create a new persistent session with client-provided file information (30-day expiration)"""
         await self._init_redis()
         
@@ -94,14 +93,9 @@ class ConnectionManager:
             raise ValueError(f"Invalid or inactive license: {license_id}")
         
         # Check concurrent session limits
-        active_sessions = await self.get_user_sessions(user_id, status_filter="active")
-        if len(active_sessions) >= license_data.max_concurrent_files:
+        valid_sessions = await self.get_user_sessions(user_id, status_filter="active")
+        if len(valid_sessions) >= license_data.max_concurrent_files:
             raise ValueError(f"Maximum concurrent sessions ({license_data.max_concurrent_files}) reached for license {license_id}")
-        
-        # Validate file hash format if provided
-        if file_hash and not self._validate_file_hash_format(file_hash):
-            logger.warning(f"Invalid file hash format provided for session creation")
-            file_hash = None
         
         session_id = str(uuid.uuid4())
         websocket_port = await self._allocate_port()
@@ -111,17 +105,16 @@ class ConnectionManager:
             user_id=user_id,
             license_id=license_id,
             file_path=file_path,
-            file_hash=file_hash,
+            document_guid=document_guid,
             created_at=datetime.now(),
             last_active=datetime.now(),
             expires_at=datetime.now() + timedelta(seconds=self.session_max_ttl),
             websocket_port=websocket_port,
             connection_metadata={
-                "file_size": file_size,
                 "created_by": "host_app",
                 "license_tier": license_data.tier,
-                "file_hash_provided": bool(file_hash)
-            }
+            },
+            status="pending"
         )
         
         self.sessions[session_id] = session
@@ -145,6 +138,10 @@ class ConnectionManager:
         
         logger.info(f"Persistent session created: {session_id} for file {file_path} (license: {license_id})")
         return session
+    
+    async def update_session(self, session_id: str, session: PersistentSession):
+        """Update a session in Redis"""
+        await self.redis_client.hset(f"session:{session_id}", mapping=asdict(session))
     
     async def get_user_sessions(self, user_id: str, status_filter: Optional[str] = None) -> List[PersistentSession]:
         """Get all sessions for a user, optionally filtered by status"""
@@ -176,12 +173,12 @@ class ConnectionManager:
             return None
         
         # Update session status and activity
-        session.status = "pending"
+        session.status = "active"
         session.last_active = datetime.now()
         
         # Update in Redis
         await self.redis_client.hset(f"session:{session_id}", mapping={
-            "status": "pending",
+            "status": "active",
             "last_active": session.last_active.isoformat()
         })
         await self.redis_client.expire(f"session:{session_id}", self.session_dormant_ttl)
@@ -194,29 +191,8 @@ class ConnectionManager:
         return session
 
     # File Integrity Methods
-    
-    def _validate_file_hash_format(self, file_hash: str) -> bool:
-        """Validate file hash format (SHA-256 should be 64 hex characters)"""
-        if not file_hash:
-            return False
-        if len(file_hash) != 64:
-            return False
-        try:
-            int(file_hash, 16)
-            return True
-        except ValueError:
-            return False
-    
-    async def validate_file_integrity(self, session_id: str) -> bool:
-        """Validate file integrity - now delegated to client side"""
-        session = await self.get_session(session_id)
-        if not session:
-            return False
-        
-        # Since we can't access client files, we rely on client-side validation
-        # The client should report file status changes via file_status_update messages
-        logger.info(f"File integrity validation requested for session {session_id} - delegated to client")
-        return True  # Trust client-side validation
+
+    # File integrity validation removed - now handled client-side only
 
     # Legacy compatibility methods (keeping existing interface)
     
@@ -300,10 +276,7 @@ class ConnectionManager:
                 await websocket.close(code=1008, reason="Session expired")
                 return
             
-            # Validate file integrity
-            if not await self.validate_file_integrity(session.session_id):
-                await websocket.close(code=1008, reason="File integrity check failed")
-                return
+            # File integrity validation removed - handled client-side
             
             # Update session
             session.websocket = websocket
@@ -334,7 +307,6 @@ class ConnectionManager:
                 "instance_id": session.instance_id,
                 "license_id": session.license_id,
                 "file_path": session.file_path,
-                "file_hash": session.file_hash,
                 "timestamp": datetime.now().isoformat()
             }
             await websocket.send(json.dumps(handshake))
@@ -427,15 +399,13 @@ class ConnectionManager:
         await self.host_app_notifications[session.session_id].put(notification)
         logger.info(f"Notification queued for session {session.session_id}: {event_type}")
     
-    async def send_to_rhino(self, session_id: str, tool: str, params: Optional[Dict[str, Any]] = None, timeout: float = 30.0) -> dict:
+    async def send_to_rhino(self, session_id: str, tool: str, params: Optional[Dict[str, Any]] = None, timeout: float = 120.0) -> dict:
         """Send a command to a Rhino instance and wait for a response."""
         session = self.sessions.get(session_id)
         if not session or not session.websocket:
             raise ValueError(f"No active connection for session {session_id}")
 
-        # Validate file integrity before sending commands
-        if not await self.validate_file_integrity(session_id):
-            raise ValueError(f"File integrity check failed for session {session_id}")
+        # File integrity validation removed - handled client-side
 
         # Prepare command message
         correlation_id = str(uuid.uuid4())
@@ -492,7 +462,7 @@ class ConnectionManager:
             user_id=session_data["user_id"],
             license_id=session_data["license_id"],
             file_path=session_data["file_path"],
-            file_hash=session_data.get("file_hash"),
+            document_guid=session_data.get("document_guid"),
             created_at=datetime.fromisoformat(session_data["created_at"]),
             last_active=datetime.fromisoformat(session_data["last_active"]),
             expires_at=datetime.fromisoformat(session_data["expires_at"]),

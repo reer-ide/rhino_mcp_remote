@@ -191,3 +191,40 @@ def register_license_routes(mcp: FastMCP):
                 {"error": "Failed to get license info"}, 
                 status_code=500
             )
+        
+    @mcp.custom_route("/license/{license_id}/deactivate", methods=["POST"])
+    async def deactivate_license(request: Request) -> JSONResponse:
+        """Deactivate a license"""
+        try:
+            license_manager = await get_license_manager()
+            license_id = request.path_params["license_id"]
+            
+            # Extract optional reason from request body
+            reason = "user_request"  # default
+            try:
+                data = await request.json()
+                reason = data.get("reason", "user_request")
+            except:
+                # If no JSON body provided, use default reason
+                pass
+            
+            await license_manager.deactivate_license(license_id, reason)
+
+            # TODO: send a success message to notify the host app
+
+            return JSONResponse({
+                "status": "success",
+                "license_id": license_id,
+                "reason": reason
+            })
+        except ValueError as e:
+            return JSONResponse(
+                {"error": str(e)}, 
+                status_code=404
+            )
+        except Exception as e:
+            logger.error(f"Error deactivating license: {e}")
+            return JSONResponse(
+                {"error": "Failed to deactivate license"}, 
+                status_code=500
+            )

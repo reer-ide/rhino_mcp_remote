@@ -133,14 +133,12 @@ sequenceDiagram
     end
     
     Note over HostApp,RemoteServer: Step 3: Create session
-    RhinoPlugin->>RhinoPlugin: Calculate file hash locally
     HostApp->>RemoteServer: POST /sessions/create<br/>{file_path, user_id, license_id}
     RemoteServer->>RemoteServer: Create persistent session
-    RemoteServer->>HostApp: {session_id, server_url, status}
+    RemoteServer->>HostApp: session info: {session_id, websocket_url, status. etc}
     
     Note over RhinoPlugin,RemoteServer: Step 4: Establish connection
-    HostApp->>RhinoPlugin: Start MCP server with Command ReerStart with {server_url, session_id}
-    RhinoPlugin->>RemoteServer: WebSocket connect for session<br/>{session_id, file_hash, file_size}
+    RhinoPlugin->>RemoteServer: WebSocket connect for {user_id, file_path, file_size}
     RemoteServer->>RhinoPlugin: Session established
     RhinoPlugin->>RhinoPlugin: Register file with FileIntegrityManager
     
@@ -187,7 +185,7 @@ sequenceDiagram
     Note over RhinoPlugin,RemoteServer: Step 3: Validate file & re-establish connection
     RhinoPlugin->>RhinoPlugin: Validate file integrity<br/>(check for changes/moves)
     alt File validation passed
-        RhinoPlugin->>RemoteServer: WebSocket connect for session<br/>{session_id, current_file_hash}
+        RhinoPlugin->>RemoteServer: WebSocket connect for session<br/>{session_id, current_file_path}
         RemoteServer->>RemoteServer: Reactivate session
         RemoteServer->>RhinoPlugin: Session re-established
         RemoteServer->>HostApp: SSE: session_established
@@ -214,7 +212,7 @@ sequenceDiagram
     HostApp->>HostApp: App starts up
     HostApp->>RemoteServer: GET /sessions/active<br/>{user_id}
     RemoteServer->>RemoteServer: Query Redis for active sessions
-    RemoteServer->>HostApp: {active_sessions: [...]}
+    RemoteServer->>HostApp: {valid_sessions: [...]}
     
     loop For each active session
         HostApp->>RemoteServer: GET /sessions/{session_id}/status
@@ -253,7 +251,6 @@ interface PersistentSession {
   user_id: string;              // Owner of the session
   license_id: string;           // Associated license
   file_path: string;            // Absolute path to .3dm file
-  file_hash: string;            // File content hash for validation
   created_at: datetime;         // Session creation time
   last_active: datetime;        // Last activity timestamp
   status: 'pending' | 'active' | 'dormant' | 'expired';
@@ -311,7 +308,6 @@ class SessionManager:
             user_id=user_id,
             license_id=license_id,
             file_path=file_path,
-            file_hash=await self.calculate_file_hash(file_path),
             status="pending"
         )
         
@@ -517,7 +513,6 @@ CREATE TABLE persistent_sessions (
     user_id VARCHAR(255) NOT NULL,
     license_id VARCHAR(255) NOT NULL,
     file_path TEXT NOT NULL,
-    file_hash VARCHAR(64),
     created_at TIMESTAMP DEFAULT NOW(),
     last_active TIMESTAMP,
     status VARCHAR(50) DEFAULT 'pending',

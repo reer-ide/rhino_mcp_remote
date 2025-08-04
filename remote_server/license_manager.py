@@ -340,6 +340,28 @@ class LicenseManager:
             license_key=license_data.get("license_key")
         )
 
+    async def deactivate_license(self, license_id: str, reason: str = "user_request"):
+        """Deactivate a license by ID"""
+        await self._init_redis()
+        
+        # Check if license exists
+        license_data = await self.redis_client.hgetall(f"license:{license_id}")
+        if not license_data:
+            raise ValueError(f"License not found: {license_id}")
+        
+        # Check if already deactivated
+        if license_data.get("status") == "deactivated":
+            logger.warning(f"License already deactivated: {license_id}")
+            return
+        
+        # Deactivate with timestamp and reason
+        await self.redis_client.hset(f"license:{license_id}", mapping={
+            "status": "deactivated",
+            "deactivated_at": datetime.now().isoformat(),
+            "deactivation_reason": reason
+        })
+        await self.redis_client.expire(f"license:{license_id}", self.session_max_ttl)
+        logger.info(f"License deactivated: {license_id} (reason: {reason})")
 
 class LicenseKeyValidator:
     """License validation for runtime use"""
