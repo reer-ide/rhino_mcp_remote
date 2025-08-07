@@ -21,7 +21,7 @@ def register_session_routes(mcp: FastMCP):
     
     @mcp.custom_route("/sessions/create", methods=["POST"])
     async def create_session(request: Request) -> JSONResponse:
-        """Create a new persistent session with client-provided file information"""
+        """Create a new persistent session with server-generated document GUID"""
         try:
             connection_manager = await get_connection_manager()
                 
@@ -29,22 +29,17 @@ def register_session_routes(mcp: FastMCP):
             user_id = data.get("user_id") 
             file_path = data.get("file_path")
             license_id = data.get("license_id")
-            document_guid = data.get("document_guid")
             
-            if not user_id or not file_path:
+            if not user_id or not file_path or not license_id:
                 return JSONResponse(
-                    {"error": "user_id and file_path are required"}, 
+                    {"error": "user_id, file_path, and license_id are required"}, 
                     status_code=400
                 )
             
-            # Choose session creation method based on whether license_id is provided
-            if license_id:
-                session = await connection_manager.create_persistent_session(
-                    user_id, file_path, license_id, document_guid
-                )
-            else:
-                # Legacy compatibility - create session without explicit license
-                session = await connection_manager.create_session(user_id, file_path)
+            # Always create session with license and server-generated GUID
+            session = await connection_manager.create_persistent_session(
+                user_id, file_path, license_id
+            )
             
             # Use 127.0.0.1 for client connections instead of 0.0.0.0 bind address
             client_host = "127.0.0.1" if settings.host == "0.0.0.0" else settings.host
@@ -53,6 +48,7 @@ def register_session_routes(mcp: FastMCP):
                 "session_id": session.session_id,
                 "instance_id": session.instance_id,  # Will be None initially, set when WebSocket connects
                 "license_id": session.license_id,
+                "document_guid": session.document_guid,  # Server-generated or provided GUID
                 "websocket_port": session.websocket_port,
                 "websocket_url": f"ws://{client_host}:{session.websocket_port}?session_id={session.session_id}",
                 "file_path": session.file_path,
@@ -154,14 +150,19 @@ def register_session_routes(mcp: FastMCP):
 
     @mcp.custom_route("/sessions/connect", methods=["POST"])
     async def connect_to_session(request: Request) -> JSONResponse:
-        """Connect plugin to an existing session created by host app"""
+        """Universal endpoint to connect to an existing session using various search criteria"""
         try:
             connection_manager = await get_connection_manager()
             data = await request.json()
+            
+            # Required fields
             user_id = data.get("user_id")
-            file_path = data.get("file_path")
             license_id = data.get("license_id")
+            
+            # Optional search criteria (at least one required)
+            session_id = data.get("session_id")
             document_guid = data.get("document_guid")
+            file_path = data.get("file_path")
             
             if not user_id or not license_id:
                 return JSONResponse(
@@ -169,42 +170,69 @@ def register_session_routes(mcp: FastMCP):
                     status_code=400
                 )
             
-            # Find session by GUID first, then fall back to file path
-            user_sessions = await connection_manager.get_user_sessions(user_id)
+            if not session_id and not document_guid and not file_path:
+                return JSONResponse(
+                    {"error": "At least one of session_id, document_guid, or file_path is required"}, 
+                    status_code=400
+                )
+            
             matching_session = None
             
-            # Primary matching: GUID + license_id
-            if document_guid:
-                for session in user_sessions:
-                    if (session.document_guid == document_guid and 
-                        session.license_id == license_id and
-                        session.status in ["pending", "active"]):
-                        matching_session = session
-                        # Update file path if changed
-                        if file_path and session.file_path != file_path:
+            # Method 1: Direct session_id lookup (most specific)
+            if session_id:
+                session = await connection_manager.get_session(session_id)
+                if session and session.user_id == user_id and session.license_id == license_id:
+                    matching_session = session
+                    # Update file path if provided and different
+                    if file_path and session.file_path != file_path:
+                        normalized_new_path = file_path.replace("\\", "/")
+                        normalized_session_path = session.file_path.replace("\\", "/")
+                        if normalized_session_path != normalized_new_path:
                             session.file_path = file_path
                             await connection_manager.redis_client.hset(
                                 f"session:{session.session_id}", 
                                 "file_path", file_path
                             )
                             logger.info(f"Updated file path for session {session.session_id}: {file_path}")
+            
+            # Method 2: Search by document GUID
+            elif document_guid:
+                user_sessions = await connection_manager.get_user_sessions(user_id)
+                for session in user_sessions:
+                    if (session.document_guid == document_guid and 
+                        session.license_id == license_id and
+                        session.status in ["pending", "active", "dormant"]):
+                        matching_session = session
+                        # Update file path if changed
+                        if file_path:
+                            normalized_new_path = file_path.replace("\\", "/")
+                            normalized_session_path = session.file_path.replace("\\", "/")
+                            if normalized_session_path != normalized_new_path:
+                                session.file_path = file_path
+                                await connection_manager.redis_client.hset(
+                                    f"session:{session.session_id}", 
+                                    "file_path", file_path
+                                )
+                                logger.info(f"Updated file path for session {session.session_id}: {file_path}")
                         break
             
-            # Fallback matching: file_path + license_id (for legacy support)
-            if not matching_session and file_path:
+            # Method 3: Search by file path (fallback)
+            elif file_path:
+                user_sessions = await connection_manager.get_user_sessions(user_id)
                 normalized_path = file_path.replace("\\", "/")
                 for session in user_sessions:
                     session_file_path = session.file_path.replace("\\", "/")
                     if (session_file_path == normalized_path and 
                         session.license_id == license_id and
-                        session.status in ["pending", "active"] and
-                        not session.document_guid):  # Only match sessions without GUID
+                        session.status in ["pending", "active", "dormant"]):
                         matching_session = session
                         break
             
             if not matching_session:
-                error_msg = "No matching session found. Session must be created by host application first."
-                if document_guid:
+                error_msg = "No matching session found."
+                if session_id:
+                    error_msg += f" (Searched by session ID: {session_id})"
+                elif document_guid:
                     error_msg += f" (Searched by document GUID: {document_guid})"
                 elif file_path:
                     error_msg += f" (Searched by file path: {file_path})"
@@ -237,6 +265,7 @@ def register_session_routes(mcp: FastMCP):
             return JSONResponse({
                 "session_id": session.session_id,
                 "instance_id": session.instance_id,
+                "document_guid": session.document_guid,  # Server-managed GUID
                 "websocket_url": f"ws://{client_host}:{session.websocket_port}?session_id={session.session_id}",
                 "file_path": session.file_path,
                 "status": session.status,
@@ -251,72 +280,6 @@ def register_session_routes(mcp: FastMCP):
                 status_code=500
             )
 
-    @mcp.custom_route("/sessions/reconnect", methods=["POST"])
-    async def reconnect_session(request: Request) -> JSONResponse:
-        """Reconnect to an existing session (for client session persistence)"""
-        try:
-            connection_manager = await get_connection_manager()
-            data = await request.json()
-            session_id = data.get("session_id")
-            license_id = data.get("license_id")
-            user_id = data.get("user_id")
-            
-            if not session_id or not license_id or not user_id:
-                return JSONResponse(
-                    {"error": "session_id, license_id, and user_id are required"}, 
-                    status_code=400
-                )
-            
-            # Get the session
-            session = await connection_manager.get_session(session_id)
-            
-            if not session:
-                return JSONResponse(
-                    {"error": "Session not found"}, 
-                    status_code=404
-                )
-            
-            # Validate license and user match
-            if session.license_id != license_id or session.user_id != user_id:
-                return JSONResponse(
-                    {"error": "License ID or user ID mismatch"}, 
-                    status_code=403
-                )
-            
-            # Check if session is expired
-            if datetime.now() > session.expires_at:
-                return JSONResponse(
-                    {"error": "Session has expired"}, 
-                    status_code=410
-                )
-            
-            # Reactivate the session
-            session = await connection_manager.reactivate_session(session_id)
-            
-            if not session:
-                return JSONResponse(
-                    {"error": "Failed to reactivate session"}, 
-                    status_code=500
-                )
-            
-            # Use 127.0.0.1 for client connections
-            client_host = "127.0.0.1" if settings.host == "0.0.0.0" else settings.host
-            
-            return JSONResponse({
-                "session_id": session.session_id,
-                "instance_id": session.instance_id,
-                "websocket_url": f"ws://{client_host}:{session.websocket_port}?session_id={session.session_id}",
-                "file_path": session.file_path,
-                "status": session.status,
-                "reconnected_at": datetime.now().isoformat()
-            })
-            
-        except Exception as e:
-            logger.error(f"Error reconnecting to session: {e}")
-            return JSONResponse(
-                {"error": "Failed to reconnect to session"}, 
-                status_code=500
-            )
 
     @mcp.custom_route("/sessions/{session_id}/reactivate", methods=["POST"])
     async def reactivate_session(request: Request) -> JSONResponse:
@@ -414,5 +377,66 @@ def register_session_routes(mcp: FastMCP):
             logger.error(f"Error getting session status: {e}")
             return JSONResponse(
                 {"error": "Failed to get session status"}, 
+                status_code=500
+            )
+
+    @mcp.custom_route("/sessions/{session_id}/update-path", methods=["POST"])
+    async def update_session_file_path(request: Request) -> JSONResponse:
+        """Update the file path for a session (e.g., after SaveAs operation)"""
+        logger.info(f"[DEBUG] update-path endpoint called for session: {request.path_params}")
+        try:
+            connection_manager = await get_connection_manager()
+            session_id = request.path_params["session_id"]
+            logger.info(f"[DEBUG] Extracted session_id: {session_id}")
+            data = await request.json()
+            logger.info(f"[DEBUG] Request data: {data}")
+            
+            new_file_path = data.get("file_path")
+            old_file_path = data.get("old_file_path")
+            document_guid = data.get("document_guid")
+            
+            if not new_file_path:
+                return JSONResponse(
+                    {"error": "file_path is required"}, 
+                    status_code=400
+                )
+            
+            # Get the session
+            session = await connection_manager.get_session(session_id)
+            
+            if not session:
+                return JSONResponse(
+                    {"error": "Session not found"}, 
+                    status_code=404
+                )
+            
+            # Verify document GUID matches if provided (security check)
+            if document_guid and session.document_guid != document_guid:
+                return JSONResponse(
+                    {"error": "Document GUID mismatch"}, 
+                    status_code=403
+                )
+            
+            # Update the session file path
+            session.file_path = new_file_path
+            session.last_active = datetime.now()
+            
+            # Update in Redis
+            await connection_manager.update_session(session_id, session)
+            
+            logger.info(f"Updated file path for session {session_id}: '{old_file_path}' -> '{new_file_path}'")
+            
+            return JSONResponse({
+                "session_id": session.session_id,
+                "old_file_path": old_file_path,
+                "new_file_path": new_file_path,
+                "updated_at": datetime.now().isoformat(),
+                "status": "success"
+            })
+            
+        except Exception as e:
+            logger.error(f"Error updating session file path: {e}")
+            return JSONResponse(
+                {"error": "Failed to update session file path"}, 
                 status_code=500
             )

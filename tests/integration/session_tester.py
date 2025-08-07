@@ -4,8 +4,18 @@ Session management functionality for integration tests
 
 import asyncio
 import aiohttp
+import os
+import sys
 from typing import Dict, Any, Optional, List
-from .base_tester import BaseIntegrationTester
+
+# Handle both relative import (when run as module) and direct import (when run standalone)
+try:
+    from .base_tester import BaseIntegrationTester
+except ImportError:
+    # If relative import fails, we're running standalone
+    # Add the current directory to path and import directly
+    sys.path.insert(0, os.path.dirname(__file__))
+    from base_tester import BaseIntegrationTester
 
 
 class SessionTester(BaseIntegrationTester):
@@ -211,3 +221,99 @@ class SessionTester(BaseIntegrationTester):
         except Exception as e:
             print(f"❌ Error getting user sessions: {e}")
             return []
+    
+    async def run_standalone(self):
+        """Run as standalone session tester"""
+        print("="*70)
+        print("🚀 RHINO MCP REMOTE - STANDALONE SESSION TESTER")
+        print("="*70)
+        print(f"Server URL: {self.server_url}")
+        print()
+        
+        try:
+            # Get license ID from user
+            license_id = input("Enter your license ID (from registration): ").strip()
+            if not license_id:
+                print("❌ License ID is required")
+                return False
+                
+            # Set up license data
+            self.license_data = {"license_id": license_id}
+            
+            # Create session
+            success = await self.create_host_session()
+            if not success:
+                return False
+            
+            # Guide user through connection
+            connected = self.prompt_user_plugin_connection()
+            if not connected:
+                return False
+            
+            # Verify connection
+            verified = await self.verify_plugin_connection()
+            if verified:
+                print("\n🎉 SUCCESS! Session is active and connected!")
+                print(f"\nWebSocket URL: {self.session_data['websocket_url']}")
+                print("\nYou can now use the plugin in Rhino or connect MCP clients.")
+                
+                # Offer to monitor
+                monitor = input("\nMonitor session status? (y/n): ").strip().lower()
+                if monitor in ['y', 'yes']:
+                    await self.monitor_session()
+                return True
+            else:
+                print("\n⚠️ Connection verification failed")
+                return False
+                
+        except Exception as e:
+            print(f"\n❌ Error: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    async def monitor_session(self):
+        """Monitor session status with live updates"""
+        if not self.session_data:
+            return
+            
+        print(f"\n📊 Monitoring session {self.session_data['session_id'][:12]}...")
+        print("Press Ctrl+C to stop")
+        print("-" * 50)
+        
+        try:
+            import aiohttp
+            from datetime import datetime
+            
+            while True:
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(
+                            f"{self.server_url}/sessions/{self.session_data['session_id']}/status"
+                        ) as response:
+                            if response.status == 200:
+                                status_data = await response.json()
+                                timestamp = datetime.now().strftime("%H:%M:%S")
+                                status = status_data.get('status', 'unknown')
+                                instance = status_data.get('instance_id', 'none')
+                                print(f"[{timestamp}] Status: {status}, Instance: {instance[:12]}..." if instance != 'none' else f"[{timestamp}] Status: {status}, Instance: {instance}")
+                            else:
+                                print(f"❌ Failed to get status (HTTP {response.status})")
+                                break
+                except Exception as e:
+                    print(f"⚠️ Error checking status: {e}")
+                
+                await asyncio.sleep(10)  # Update every 10 seconds
+                
+        except KeyboardInterrupt:
+            print("\n👋 Monitoring stopped")
+
+
+def _main():
+    """Run the session tester standalone"""
+    tester = SessionTester()
+    asyncio.run(tester.run_standalone())
+
+
+if __name__ == "__main__":
+    _main()

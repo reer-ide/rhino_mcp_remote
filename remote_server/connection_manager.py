@@ -83,8 +83,8 @@ class ConnectionManager:
 
     # Enhanced Session Management
     
-    async def create_persistent_session(self, user_id: str, file_path: str, license_id: str, document_guid: Optional[str] = None) -> PersistentSession:
-        """Create a new persistent session with client-provided file information (30-day expiration)"""
+    async def create_persistent_session(self, user_id: str, file_path: str, license_id: str) -> PersistentSession:
+        """Create a new persistent session with server-generated document GUID (30-day expiration)"""
         await self._init_redis()
         
         # Validate license
@@ -99,6 +99,10 @@ class ConnectionManager:
         
         session_id = str(uuid.uuid4())
         websocket_port = await self._allocate_port()
+        
+        # Always generate document GUID server-side
+        document_guid = str(uuid.uuid4())
+        logger.info(f"Generated document GUID for session {session_id}: {document_guid}")
         
         session = PersistentSession(
             session_id=session_id,

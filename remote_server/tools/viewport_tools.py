@@ -12,13 +12,13 @@ def register_tools(mcp, connection_manager: ConnectionManager):
     """Register viewport tools with the MCP server."""
     
     @mcp.tool()
-    async def capture_rhino_viewport(session_id: str, layer: Optional[str] = None, show_annotations: bool = True, max_size: int = 800) -> ImageContent:
+    async def capture_rhino_viewport(session_id: str, layer: Optional[str] = None, show_annotations: bool = False, max_size: int = 800) -> ImageContent:
         """Capture the current viewport as an image.
         
         Args:
             session_id: The session ID of the connected Rhino instance
             layer: Optional layer name to show exclusively in capture
-            show_annotations: Whether to include annotations in the capture
+            show_annotations: Whether to include annotations in the capture, condiser turning this on only when several objects are in the viewport
             max_size: Maximum size for the captured image in pixels
             
         Returns:
