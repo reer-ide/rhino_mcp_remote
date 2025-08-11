@@ -183,17 +183,18 @@ def register_session_routes(mcp: FastMCP):
                 session = await connection_manager.get_session(session_id)
                 if session and session.user_id == user_id and session.license_id == license_id:
                     matching_session = session
-                    # Update file path if provided and different
-                    if file_path and session.file_path != file_path:
+                    # Update file path if provided and different (normalize first for accurate comparison)
+                    if file_path:
                         normalized_new_path = file_path.replace("\\", "/")
-                        normalized_session_path = session.file_path.replace("\\", "/")
+                        normalized_session_path = session.file_path.replace("\\", "/") if session.file_path else ""
                         if normalized_session_path != normalized_new_path:
+                            old_path = session.file_path
                             session.file_path = file_path
                             await connection_manager.redis_client.hset(
                                 f"session:{session.session_id}", 
                                 "file_path", file_path
                             )
-                            logger.info(f"Updated file path for session {session.session_id}: {file_path}")
+                            logger.info(f"Updated file path for session {session.session_id}: '{old_path}' -> '{file_path}'")
             
             # Method 2: Search by document GUID
             elif document_guid:
@@ -208,12 +209,13 @@ def register_session_routes(mcp: FastMCP):
                             normalized_new_path = file_path.replace("\\", "/")
                             normalized_session_path = session.file_path.replace("\\", "/")
                             if normalized_session_path != normalized_new_path:
+                                old_path = session.file_path
                                 session.file_path = file_path
                                 await connection_manager.redis_client.hset(
                                     f"session:{session.session_id}", 
                                     "file_path", file_path
                                 )
-                                logger.info(f"Updated file path for session {session.session_id}: {file_path}")
+                                logger.info(f"Updated file path for session {session.session_id}: '{old_path}' -> '{file_path}'")
                         break
             
             # Method 3: Search by file path (fallback)
@@ -377,66 +379,5 @@ def register_session_routes(mcp: FastMCP):
             logger.error(f"Error getting session status: {e}")
             return JSONResponse(
                 {"error": "Failed to get session status"}, 
-                status_code=500
-            )
-
-    @mcp.custom_route("/sessions/{session_id}/update-path", methods=["POST"])
-    async def update_session_file_path(request: Request) -> JSONResponse:
-        """Update the file path for a session (e.g., after SaveAs operation)"""
-        logger.info(f"[DEBUG] update-path endpoint called for session: {request.path_params}")
-        try:
-            connection_manager = await get_connection_manager()
-            session_id = request.path_params["session_id"]
-            logger.info(f"[DEBUG] Extracted session_id: {session_id}")
-            data = await request.json()
-            logger.info(f"[DEBUG] Request data: {data}")
-            
-            new_file_path = data.get("file_path")
-            old_file_path = data.get("old_file_path")
-            document_guid = data.get("document_guid")
-            
-            if not new_file_path:
-                return JSONResponse(
-                    {"error": "file_path is required"}, 
-                    status_code=400
-                )
-            
-            # Get the session
-            session = await connection_manager.get_session(session_id)
-            
-            if not session:
-                return JSONResponse(
-                    {"error": "Session not found"}, 
-                    status_code=404
-                )
-            
-            # Verify document GUID matches if provided (security check)
-            if document_guid and session.document_guid != document_guid:
-                return JSONResponse(
-                    {"error": "Document GUID mismatch"}, 
-                    status_code=403
-                )
-            
-            # Update the session file path
-            session.file_path = new_file_path
-            session.last_active = datetime.now()
-            
-            # Update in Redis
-            await connection_manager.update_session(session_id, session)
-            
-            logger.info(f"Updated file path for session {session_id}: '{old_file_path}' -> '{new_file_path}'")
-            
-            return JSONResponse({
-                "session_id": session.session_id,
-                "old_file_path": old_file_path,
-                "new_file_path": new_file_path,
-                "updated_at": datetime.now().isoformat(),
-                "status": "success"
-            })
-            
-        except Exception as e:
-            logger.error(f"Error updating session file path: {e}")
-            return JSONResponse(
-                {"error": "Failed to update session file path"}, 
                 status_code=500
             )
