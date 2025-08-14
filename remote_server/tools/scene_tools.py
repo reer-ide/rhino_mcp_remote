@@ -5,7 +5,7 @@ from remote_server.connection_manager import ConnectionManager
 from remote_server.utils.tool_helpers import handle_tool_exe_response, handle_error
 
 
-def register_tools(mcp, connection_manager: ConnectionManager):
+def register_tools(mcp, connection_manager: Optional[ConnectionManager]):
     """Register scene tools with the MCP server."""
     
     @mcp.tool()
@@ -24,7 +24,10 @@ def register_tools(mcp, connection_manager: ConnectionManager):
             JSON string containing basic scene information
         """
         try:
-            result = await connection_manager.send_to_rhino(session_id, "get_rhino_scene_info")
+            # Get connection manager lazily
+            from remote_server.dependencies import get_connection_manager
+            conn_mgr = await get_connection_manager()
+            result = await conn_mgr.send_to_rhino(session_id, "get_rhino_scene_info")
             return handle_tool_exe_response("getting scene info", session_id, result)
         except Exception as e:
             return handle_error("getting scene info", session_id, e)
@@ -60,12 +63,16 @@ def register_tools(mcp, connection_manager: ConnectionManager):
             if not obj_guids and not get_all_objects:
                 raise Exception("Either 'obj_guids' list or 'get_all_objects' = True must be provided")
             
+            # Get connection manager lazily
+            from remote_server.dependencies import get_connection_manager
+            conn_mgr = await get_connection_manager()
+            
             params = {
                 "obj_guids": obj_guids,
                 "get_all_objects": get_all_objects,
                 "include_attributes": include_attributes
             }
-            result = await connection_manager.send_to_rhino(session_id, "get_rhino_objects_info", params)
+            result = await conn_mgr.send_to_rhino(session_id, "get_rhino_objects_info", params)
             return handle_tool_exe_response("getting objects info", session_id, result)
         except Exception as e:
             return handle_error("getting objects info", session_id, e)

@@ -18,7 +18,8 @@ from remote_server.tools import rhinoscript_tools
 # Use FastMCP's logging system
 logger = get_logger(__name__)
 
-# Create FastMCP server instance
+
+# Create FastMCP server instance  
 mcp = FastMCP(
     name="remote-rhino-mcp-server",
     instructions="""
@@ -34,8 +35,6 @@ mcp = FastMCP(
 
 def register_all_tools():
     """Register all MCP tools with the server."""
-    connection_manager = get_app_connection_manager()
-    
     # Import tool modules
     from remote_server.tools import (
         scene_tools,
@@ -48,16 +47,17 @@ def register_all_tools():
         documentation_tools,
     )
     
-    # Register tools with the mcp instance and connection manager
-    scene_tools.register_tools(mcp, connection_manager)
-    object_tools.register_tools(mcp, connection_manager)
-    selection_tools.register_tools(mcp, connection_manager)
-    metadata_tools.register_tools(mcp, connection_manager)
-    layer_tools.register_tools(mcp, connection_manager)
-    viewport_tools.register_tools(mcp, connection_manager)
-    utility_tools.register_tools(mcp, connection_manager)
-    rhinoscript_tools.register_tools(mcp, connection_manager)
-    documentation_tools.register_tools(mcp, connection_manager)
+    # Register tools with the mcp instance only
+    # Connection manager will be accessed lazily when tools are called
+    scene_tools.register_tools(mcp, None)
+    object_tools.register_tools(mcp, None)
+    selection_tools.register_tools(mcp, None)
+    metadata_tools.register_tools(mcp, None)
+    layer_tools.register_tools(mcp, None)
+    viewport_tools.register_tools(mcp, None)
+    utility_tools.register_tools(mcp, None)
+    rhinoscript_tools.register_tools(mcp, None)
+    documentation_tools.register_tools(mcp, None)
     
     logger.info("All MCP tools registered successfully")
 
@@ -143,7 +143,7 @@ def server_info() -> str:
             "capture_rhino_viewport",
             "execute_rhino_code",
             "get_rhino_selected_objects",
-            "select_rhino_objects",
+            "select_filtered_rhino_objects",
             "look_up_RhinoScriptSyntax"
         ]
     }
@@ -165,26 +165,19 @@ def main():
     
     logger.info(f"Starting Remote Rhino MCP Server v2.0 on {settings.host}:{settings.port}")
     logger.info("Architecture: License-based persistent sessions with auto-reconnection")
-    logger.info("Available Rhino tools: get_rhino_scene_info, get_rhino_objects_info, add_rhino_objects_metadata, update_rhino_objects_metadata, create_rhino_basic_objects, create_rhino_layers, delete_rhino_layers, delete_rhino_objects, modify_rhino_objects, capture_rhino_viewport, execute_rhino_code, get_rhino_selected_objects, select_rhino_objects, look_up_RhinoScriptSyntax")
+    logger.info("Available Rhino tools: get_rhino_scene_info, get_rhino_objects_info, add_rhino_objects_metadata, update_rhino_objects_metadata, create_rhino_basic_objects, create_rhino_layers, delete_rhino_layers, delete_rhino_objects, modify_rhino_objects, capture_rhino_viewport, execute_rhino_code, get_rhino_selected_objects, select_filtered_rhino_objects, look_up_RhinoScriptSyntax")
     
-    # Initialize server components synchronously
-    import asyncio
-    import threading
+    # Register routes and tools synchronously (non-async parts)
+    register_health_routes(mcp)
+    register_license_routes(mcp)
+    register_session_routes(mcp)
+    register_all_tools()
     
-    def run_async_init():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(initialize_server())
-        finally:
-            loop.close()
-    
-    # Run initialization in a separate thread to avoid blocking
-    init_thread = threading.Thread(target=run_async_init)
-    init_thread.start()
-    init_thread.join()
+    logger.info("Routes and tools registered")
     
     try:
+        # Use FastMCP's built-in run method for proper lifespan management
+        # This ensures task groups are properly initialized
         mcp.run(
             transport="http",
             host=settings.host,

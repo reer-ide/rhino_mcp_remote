@@ -5,7 +5,7 @@ from remote_server.connection_manager import ConnectionManager
 from remote_server.utils.tool_helpers import handle_tool_exe_response, handle_error
 
 
-def register_tools(mcp, connection_manager: ConnectionManager):
+def register_tools(mcp, connection_manager: Optional[ConnectionManager]):
     """Register layer tools with the MCP server."""
     
     @mcp.tool()
@@ -35,7 +35,11 @@ def register_tools(mcp, connection_manager: ConnectionManager):
                 if parent:
                     params["parent"] = parent
                       
-            result = await connection_manager.send_to_rhino(session_id, "create_rhino_layers", params)
+            # Get connection manager lazily
+            from remote_server.dependencies import get_connection_manager
+            conn_mgr = await get_connection_manager()
+            
+            result = await conn_mgr.send_to_rhino(session_id, "create_rhino_layers", params)
             return handle_tool_exe_response("creating layers", session_id, result)
         except Exception as e:
             return handle_error("creating layers", session_id, e)
@@ -67,7 +71,11 @@ def register_tools(mcp, connection_manager: ConnectionManager):
                 if force:
                     params["force"] = force
                       
-            result = await connection_manager.send_to_rhino(session_id, "delete_rhino_layers", params)
+            # Get connection manager lazily
+            from remote_server.dependencies import get_connection_manager
+            conn_mgr = await get_connection_manager()
+            
+            result = await conn_mgr.send_to_rhino(session_id, "delete_rhino_layers", params)
             return handle_tool_exe_response("deleting layers", session_id, result)
         except Exception as e:
             return handle_error("deleting layers", session_id, e)

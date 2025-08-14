@@ -5,12 +5,12 @@ from remote_server.connection_manager import ConnectionManager
 from remote_server.utils.tool_helpers import handle_tool_exe_response, handle_error
 
 
-def register_tools(mcp, connection_manager: ConnectionManager):
+def register_tools(mcp, connection_manager: Optional[ConnectionManager]):
     """Register selection tools with the MCP server."""
     
     @mcp.tool()
     async def get_rhino_selected_objects(session_id: str, include_lights: bool = False, include_grips: bool = False) -> str:
-        """Get the identifiers of all objects that are currently selected in Rhino.
+        """Get the info of all objects that are currently selected in Rhino.
         
         Args:
             session_id: The session ID of the connected Rhino instance
@@ -25,13 +25,17 @@ def register_tools(mcp, connection_manager: ConnectionManager):
                 "include_lights": include_lights,
                 "include_grips": include_grips
             }
-            result = await connection_manager.send_to_rhino(session_id, "get_rhino_selected_objects", params)
+            # Get connection manager lazily
+            from remote_server.dependencies import get_connection_manager
+            conn_mgr = await get_connection_manager()
+            
+            result = await conn_mgr.send_to_rhino(session_id, "get_rhino_selected_objects", params)
             return handle_tool_exe_response("getting selected objects", session_id, result)
         except Exception as e:
             return handle_error("getting selected objects", session_id, e)
 
     @mcp.tool()
-    async def select_rhino_objects(session_id: str, filters: Dict[str, Any] = {}, filters_type: str = "and") -> str:
+    async def select_filtered_rhino_objects(session_id: str, filters: Dict[str, Any] = {}, filters_type: str = "and") -> str:
         """Select Rhino objects based on various filters.
 
         This tool supports filtering objects by multiple criteria:
@@ -46,7 +50,7 @@ def register_tools(mcp, connection_manager: ConnectionManager):
         
         Custom attribute filters:
         - Any other filter name will search in user-defined metadata/attributes
-        - Example: {"geometry_type": "Point"} searches for objects with custom attribute "geometry_type" = "Point"
+        - Example: {"structural_type": "beam"} searches for objects with custom attribute "structural_type" = "beam"
         
         Args:
             session_id: The session ID of the connected Rhino instance
@@ -67,7 +71,11 @@ def register_tools(mcp, connection_manager: ConnectionManager):
                 "filters": filters,
                 "filters_type": filters_type
             }
-            result = await connection_manager.send_to_rhino(session_id, "select_rhino_objects", params)
+            # Get connection manager lazily
+            from remote_server.dependencies import get_connection_manager
+            conn_mgr = await get_connection_manager()
+            
+            result = await conn_mgr.send_to_rhino(session_id, "select_filtered_rhino_objects", params)
             return handle_tool_exe_response("selecting objects", session_id, result)
         except Exception as e:
             return handle_error("selecting objects", session_id, e)

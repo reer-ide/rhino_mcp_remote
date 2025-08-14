@@ -5,7 +5,7 @@ from remote_server.connection_manager import ConnectionManager
 from remote_server.utils.tool_helpers import handle_tool_exe_response, handle_error
 
 
-def register_tools(mcp, connection_manager: ConnectionManager):
+def register_tools(mcp, connection_manager: Optional[ConnectionManager]):
     """Register metadata tools with the MCP server."""
     
     @mcp.tool()
@@ -27,7 +27,11 @@ def register_tools(mcp, connection_manager: ConnectionManager):
                 "name": name,
                 "description": description
             }
-            result = await connection_manager.send_to_rhino(session_id, "add_rhino_objects_metadata", params)
+            # Get connection manager lazily
+            from remote_server.dependencies import get_connection_manager
+            conn_mgr = await get_connection_manager()
+            
+            result = await conn_mgr.send_to_rhino(session_id, "add_rhino_objects_metadata", params)
             return handle_tool_exe_response("adding metadata to objects", session_id, result)
         except Exception as e:
             return handle_error("adding metadata to objects", session_id, e)
@@ -51,7 +55,11 @@ def register_tools(mcp, connection_manager: ConnectionManager):
                 "name": name,
                 "description": description
             }
-            result = await connection_manager.send_to_rhino(session_id, "update_rhino_objects_metadata", params)
+            # Get connection manager lazily
+            from remote_server.dependencies import get_connection_manager
+            conn_mgr = await get_connection_manager()
+            
+            result = await conn_mgr.send_to_rhino(session_id, "update_rhino_objects_metadata", params)
             return handle_tool_exe_response("updating metadata for objects", session_id, result)
         except Exception as e:
             return handle_error("updating metadata for objects", session_id, e)

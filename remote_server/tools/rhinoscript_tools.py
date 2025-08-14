@@ -9,7 +9,7 @@ except ImportError:
 from remote_server.utils.tool_helpers import handle_tool_exe_response, handle_error
 
 
-def register_tools(mcp, connection_manager: ConnectionManager):
+def register_tools(mcp, connection_manager: Optional[ConnectionManager]):
     """Register execution tools with the MCP server."""
     
     @mcp.tool()
@@ -46,7 +46,11 @@ def register_tools(mcp, connection_manager: ConnectionManager):
             Execution result
         """
         try:
-            result = await connection_manager.send_to_rhino(session_id, "execute_rhino_script", {"code": code})
+            # Get connection manager lazily
+            from remote_server.dependencies import get_connection_manager
+            conn_mgr = await get_connection_manager()
+            
+            result = await conn_mgr.send_to_rhino(session_id, "execute_rhino_script", {"code": code})
             return handle_tool_exe_response("executing code", session_id, result)
                 
         except Exception as e:

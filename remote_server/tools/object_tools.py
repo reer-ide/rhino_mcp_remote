@@ -5,7 +5,7 @@ from remote_server.connection_manager import ConnectionManager
 from remote_server.utils.tool_helpers import handle_tool_exe_response, handle_error
 
 
-def register_tools(mcp, connection_manager: ConnectionManager):
+def register_tools(mcp, connection_manager: Optional[ConnectionManager]):
     """Register object tools with the MCP server."""
     
     @mcp.tool()
@@ -61,10 +61,14 @@ def register_tools(mcp, connection_manager: ConnectionManager):
             JSON string containing the IDs and details of created objects
         """
         try:
+            # Get connection manager lazily
+            from remote_server.dependencies import get_connection_manager
+            conn_mgr = await get_connection_manager()
+            
             params = {
                 "objects": objects
             }
-            result = await connection_manager.send_to_rhino(session_id, "create_rhino_basic_geometries", params)
+            result = await conn_mgr.send_to_rhino(session_id, "create_rhino_basic_geometries", params)
             return handle_tool_exe_response("creating basic geometries", session_id, result)
         except Exception as e:
             return handle_error("creating basic geometries", session_id, e)
@@ -100,7 +104,11 @@ def register_tools(mcp, connection_manager: ConnectionManager):
             elif name:
                 params["name"] = name
                   
-            result = await connection_manager.send_to_rhino(session_id, "delete_rhino_objects", params)
+            # Get connection manager lazily
+            from remote_server.dependencies import get_connection_manager
+            conn_mgr = await get_connection_manager()
+            
+            result = await conn_mgr.send_to_rhino(session_id, "delete_rhino_objects", params)
             return handle_tool_exe_response("deleting objects", session_id, result)
         except Exception as e:
             return handle_error("deleting objects", session_id, e)
@@ -145,7 +153,11 @@ def register_tools(mcp, connection_manager: ConnectionManager):
                 "execution": execution
             }
                   
-            result = await connection_manager.send_to_rhino(session_id, "modify_rhino_objects", params)
+            # Get connection manager lazily
+            from remote_server.dependencies import get_connection_manager
+            conn_mgr = await get_connection_manager()
+            
+            result = await conn_mgr.send_to_rhino(session_id, "modify_rhino_objects", params)
             return handle_tool_exe_response("modifying objects", session_id, result)
         except Exception as e:
             return handle_error("modifying objects", session_id, e)

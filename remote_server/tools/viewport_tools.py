@@ -8,7 +8,7 @@ from remote_server.connection_manager import ConnectionManager
 from remote_server.utils.tool_helpers import handle_error
 
 
-def register_tools(mcp, connection_manager: ConnectionManager):
+def register_tools(mcp, connection_manager: Optional[ConnectionManager]):
     """Register viewport tools with the MCP server."""
     
     @mcp.tool()
@@ -30,7 +30,11 @@ def register_tools(mcp, connection_manager: ConnectionManager):
                 "show_annotations": show_annotations,
                 "max_size": max_size
             }
-            result = await connection_manager.send_to_rhino(session_id, "capture_rhino_viewport", params)
+            # Get connection manager lazily
+            from remote_server.dependencies import get_connection_manager
+            conn_mgr = await get_connection_manager()
+            
+            result = await conn_mgr.send_to_rhino(session_id, "capture_rhino_viewport", params)
             
             # The C# client wraps responses in a structure like:
             # { "type": "response", "correlation_id": "...", "status": "success", "result": { actual_tool_result } }

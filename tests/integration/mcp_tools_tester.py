@@ -118,18 +118,18 @@ class MCPToolsTester(BaseIntegrationTester):
             self.add_test_result("create_rhino_basic_objects", False, str(e))
     
     async def _test_object_selection(self, session_id: str, test_results: Dict[str, int]):
-        """Test select_rhino_objects tool"""
+        """Test select_filtered_rhino_objects tool"""
         test_results['total'] += 1
         try:
-            print("\n[UNITS] Testing select_rhino_objects...")
+            print("\n[UNITS] Testing select_filtered_rhino_objects...")
             async with self.mcp_client as client:
                 result = await client.call_tool(
-                    "select_rhino_objects",
+                    "select_filtered_rhino_objects",
                     arguments={
                         "session_id": session_id,
-                        "selection_criteria": {
-                            "object_type": "any"
-                        }
+                        "filters": {
+                            "layer": "IntegrationTest_Layer",
+                        },
                     }
                 )
             
@@ -137,16 +137,16 @@ class MCPToolsTester(BaseIntegrationTester):
                 select_result = result['result']
                 print(f"[PASS] Successfully selected {select_result.get('count', 0)} objects")
                 test_results['passed'] += 1
-                self.add_test_result("select_rhino_objects", True, 
+                self.add_test_result("select_filtered_rhino_objects", True, 
                     f"Selected {select_result.get('count', 0)} objects")
             else:
                 print("[FAIL] Failed to select objects")
                 test_results['failed'] += 1
-                self.add_test_result("select_rhino_objects", False, f"Unexpected response: {result}")
+                self.add_test_result("select_filtered_rhino_objects", False, f"Unexpected response: {result}")
         except Exception as e:
             print(f"[FAIL] Error testing object selection: {e}")
             test_results['failed'] += 1
-            self.add_test_result("select_rhino_objects", False, str(e))
+            self.add_test_result("select_filtered_rhino_objects", False, str(e))
     
     async def _test_object_metadata(self, session_id: str, test_results: Dict[str, int]):
         """Test add_rhino_objects_metadata tool"""
@@ -157,8 +157,8 @@ class MCPToolsTester(BaseIntegrationTester):
             # First select all objects
             async with self.mcp_client as client:
                 select_result = await client.call_tool(
-                    "select_rhino_objects",
-                    arguments={"session_id": session_id, "selection_criteria": {"object_type": "any"}}
+                    "select_filtered_rhino_objects",
+                    arguments={"session_id": session_id, "filters": {}}
                 )
             
             if select_result.get('result', {}).get('guids'):
@@ -564,31 +564,31 @@ class MCPToolsTester(BaseIntegrationTester):
         
         # Select objects by layer - note: this may fail due to plugin implementation issues
         test_7a = await self.test_mcp_tool_call(
-            "select_rhino_objects",
+            "select_filtered_rhino_objects",
             {"filters": {"layer": test_layer_name}},
             None  # Don't validate fields since plugin has implementation issues
         )
         results['tests'].append(test_7a)
         if test_7a['status'] == 'PASS':
             results['passed'] += 1
+            # Get information about currently selected objects
+            # Note: need to wait for the selection to be processed
+            test_7a2 = await self.test_mcp_tool_call(
+                "get_rhino_selected_objects",
+                {"include_lights": False, "include_grips": False},
+                ["selected_objects", "selected_count"]
+            )
+            results['tests'].append(test_7a2)
+            if test_7a2['status'] == 'PASS':
+                results['passed'] += 1
+                print(f"   [PASS] Selected objects info retrieved ({test_7a2.get('duration_ms', 0)}ms)")
+            else:
+                results['failed'] += 1
+                print(f"   [FAIL] Failed to get selected objects info: {test_7a2.get('error', 'no objects selected')}")
             print(f"   [PASS] Objects selected by layer ({test_7a.get('duration_ms', 0)}ms)")
         else:
             results['failed'] += 1
-            print(f"   [FAIL] Failed to select objects: {test_7a.get('error', 'Unknown')}")
-        
-        # Get information about currently selected objects
-        test_7a2 = await self.test_mcp_tool_call(
-            "get_rhino_selected_objects",
-            {"include_lights": False, "include_grips": False},
-            ["selected_objects", "selected_count"]
-        )
-        results['tests'].append(test_7a2)
-        if test_7a2['status'] == 'PASS':
-            results['passed'] += 1
-            print(f"   [PASS] Selected objects info retrieved ({test_7a2.get('duration_ms', 0)}ms)")
-        else:
-            results['failed'] += 1
-            print(f"   [FAIL] Failed to get selected objects info: {test_7a2.get('error', 'Unknown')}")
+            print(f"   [FAIL] Failed to select objects: {test_7a.get('error', 'Unknown')}, get_rhino_selected_objects will not work")            
         
         # Modify objects with chained operations
         if created_object_ids:

@@ -12,7 +12,7 @@ except ImportError:
     from remote_server.utils.rhino_script_categories import get_function_category
 from remote_server.utils.tool_helpers import handle_error
 
-def register_tools(mcp, connection_manager: ConnectionManager):
+def register_tools(mcp, connection_manager: Optional[ConnectionManager]):
     """Register documentation tools with the MCP server."""
     
     @mcp.tool()

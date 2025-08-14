@@ -375,7 +375,7 @@
       "duration_ms": 301.81
     },
     {
-      "tool": "select_rhino_objects",
+      "tool": "select_filtered_rhino_objects",
       "status": "PASS",
       "response": {
         "status": "success",

@@ -19,6 +19,13 @@ def register_health_routes(mcp: FastMCP):
     @mcp.custom_route("/health", methods=["GET"])
     async def health_check(request: Request) -> JSONResponse:
         """Health check endpoint for load balancers and monitoring."""
+        # Ensure managers are initialized on first health check
+        from remote_server.dependencies import initialize_managers
+        try:
+            await initialize_managers()
+        except Exception as e:
+            logger.warning(f"Manager initialization during health check: {e}")
+        
         return JSONResponse({
             "status": "healthy",
             "timestamp": datetime.now().isoformat(),

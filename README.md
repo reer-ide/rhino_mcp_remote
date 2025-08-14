@@ -70,7 +70,7 @@ The server provides 13+ comprehensive MCP tools for complete Rhino interaction:
 
 ### Object Management
 - **`create_rhino_basic_objects`**: Create geometric primitives (box, sphere, cylinder, etc.)
-- **`select_rhino_objects`**: Select objects by various criteria (layer, type, name)
+- **`select_filtered_rhino_objects`**: Select objects by various criteria (layer, type, name)
 - **`modify_rhino_objects`**: Apply transformations with chained operations:
   - Rotate, translate, scale
   - Change colors and properties
