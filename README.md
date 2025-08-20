@@ -122,6 +122,9 @@ uv venv
 # Install dependencies 
 uv sync
 
+# Activate virtual environment
+source .venv/bin/activate
+
 # Start the remote server
 python -m remote_server.server
 ```
