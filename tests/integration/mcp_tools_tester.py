@@ -83,15 +83,15 @@ class MCPToolsTester(BaseIntegrationTester):
                         "objects": [
                             {
                                 "type": "box",
-                                "parameters": {
-                                    "corner1": [0, 0, 0],
-                                    "corner2": [10, 10, 10]
+                                "name": "Test Box",
+                                "params": {
+                                    "center": [0, 0, 0],
+                                    "width": 10,
+                                    "length": 10,
+                                    "height": 10
                                 },
-                                "layer_name": "Test Layer",
-                                "attributes": {
-                                    "color": [255, 0, 0],
-                                    "name": "Test Box"
-                                }
+                                "layer": "Test Layer",
+                                "color": "#FF0000"
                             }
                         ]
                     }
@@ -99,13 +99,21 @@ class MCPToolsTester(BaseIntegrationTester):
             
             if result.get('type') == 'response' and result.get('result'):
                 create_result = result['result']
-                if create_result.get('created_objects'):
+                if create_result.get('objects') and create_result.get('created', 0) > 0:
                     print("[PASS] Successfully created object")
-                    print(f"   Object ID: {create_result['created_objects'][0]['guid']}")
+                    print(f"   Status: {create_result.get('status')}")
+                    print(f"   Created: {create_result.get('created')}/{create_result.get('count')}")
+                    if create_result['objects'] and len(create_result['objects']) > 0:
+                        first_obj = create_result['objects'][0]
+                        if 'object_id' in first_obj:
+                            print(f"   Object ID: {first_obj['object_id']}")
+                        elif 'error' in first_obj:
+                            print(f"   Error: {first_obj['error']}")
                     test_results['passed'] += 1
                     self.add_test_result("create_rhino_basic_objects", True, "Successfully created test box")
                 else:
                     print("[FAIL] No objects created")
+                    print(f"   Response: {create_result}")
                     test_results['failed'] += 1
                     self.add_test_result("create_rhino_basic_objects", False, "No objects were created")
             else:
@@ -428,7 +436,7 @@ class MCPToolsTester(BaseIntegrationTester):
             {
                 "objects": [
                     {
-                        "type": "BOX",
+                        "type": "box",
                         "name": "TestBox_1",
                         "layer": test_layer_name,
                         "params": {
@@ -439,7 +447,7 @@ class MCPToolsTester(BaseIntegrationTester):
                         }
                     },
                     {
-                        "type": "SPHERE",
+                        "type": "sphere",
                         "name": "TestSphere_1", 
                         "layer": test_layer_name,
                         "params": {
@@ -448,7 +456,7 @@ class MCPToolsTester(BaseIntegrationTester):
                         }
                     },
                     {
-                        "type": "CYLINDER",
+                        "type": "cylinder",
                         "name": "TestCylinder_1",
                         "layer": test_layer_name,
                         "params": {
@@ -459,7 +467,7 @@ class MCPToolsTester(BaseIntegrationTester):
                     }
                 ]
             },
-            ["status", "objects_created", "count"]
+            ["status", "objects", "count", "created", "errors"]
         )
         results['tests'].append(test_3)
         if test_3['status'] == 'PASS':
@@ -473,26 +481,21 @@ class MCPToolsTester(BaseIntegrationTester):
                         response_data = json.loads(response_data)
                     except json.JSONDecodeError:
                         response_data = {}
-                objects_created = response_data.get('objects_created', [])
+                objects_created = response_data.get('objects', [])
                 for obj in objects_created:
-                    # Try both 'id' and 'object_id' fields
-                    obj_id = obj.get('id') or obj.get('object_id')
-                    if obj_id:
+                    # Only extract IDs from successful objects (no error field)
+                    if 'object_id' in obj and 'error' not in obj:
+                        obj_id = obj['object_id']
                         created_object_ids.append(obj_id)
                         print(f"   [UNITS] Captured object ID: {obj_id}")
-                
-                # Debug: print response structure if no objects found
-                if not created_object_ids:
-                    print(f"   [WARN]  No object IDs found in response. Response structure: {response_data}")
-                    # Try alternative response formats
-                    if 'results' in response_data:
-                        for obj in response_data['results'].values() if isinstance(response_data['results'], dict) else response_data['results']:
-                            obj_id = obj.get('id') or obj.get('object_id')
-                            if obj_id:
-                                created_object_ids.append(obj_id)
-                                print(f"   [UNITS] Found object ID in results: {obj_id}")
+                    elif 'error' in obj:
+                        print(f"   [WARN]  Object creation failed: {obj.get('name', 'unknown')} - {obj['error']}")
                 
                 print(f"   [UNITS] Total object IDs captured: {len(created_object_ids)}")
+                
+                # Debug: print response structure if no successful objects found
+                if not created_object_ids and objects_created:
+                    print(f"   [WARN]  No successful objects found. Response structure: {response_data}")
         else:
             results['failed'] += 1
             print(f"   [FAIL] Failed to create objects: {test_3.get('error', 'Unknown')}")

@@ -18,44 +18,74 @@ def register_tools(mcp, connection_manager: Optional[ConnectionManager]):
         Supported object types and their parameters:
         
         - POINT: Create a point
-          Parameters: point [x,y,z]
+          Parameters: x, y, z (coordinates)
+          Sample: {"type": "point", "name": "Point1", "params": {"x": 0, "y": 0, "z": 0}}
         
         - LINE: Create a line segment  
           Parameters: start [x,y,z], end [x,y,z]
+          Sample: {"type": "line", "name": "Line1", "params": {"start": [0,0,0], "end": [1,1,1]}}
         
         - POLYLINE: Create a polyline through points
           Parameters: points [[x,y,z], [x,y,z], ...]
+          Sample: {"type": "polyline", "name": "Polyline1", "params": {"points": [[0,0,0], [1,1,1], [2,0,0]]}}
+
+        - CURVE: Create a curve through control points
+          Parameters: points [[x,y,z], [x,y,z], ...], degree (optional, default 3)
+          Sample: {"type": "curve", "name": "Curve1", "params": {"points": [[0,0,0], [1,1,1], [2,0,0]], "degree": 3}}
         
         - CIRCLE: Create a circle
           Parameters: center [x,y,z], radius
+          Sample: {"type": "circle", "name": "Circle1", "params": {"center": [0,0,0], "radius": 5.0}}
         
         - ARC: Create an arc
-          Parameters: center [x,y,z], radius, start_angle (degrees), end_angle (degrees)
+          Parameters: center [x,y,z], radius, angle (degrees - total arc angle)
+          Sample: {"type": "arc", "name": "Arc1", "params": {"center": [0,0,0], "radius": 5.0, "angle": 90}}
+        
+        - ELLIPSE: Create an ellipse
+          Parameters: center [x,y,z], radius_x, radius_y
+          Sample: {"type": "ellipse", "name": "Ellipse1", "params": {"center": [0,0,0], "radius_x": 5.0, "radius_y": 3.0}}
         
         - RECTANGLE: Create a rectangle 
-          Parameters: corner1 [x,y,z], corner2 [x,y,z] OR center [x,y,z], width, height
+          Parameters: center [x,y,z], width, height
+          Sample: {"type": "rectangle", "name": "Rectangle1", "params": {"center": [0,0,0], "width": 10.0, "height": 5.0}}
+        
+        - POLYGON: Create a regular polygon
+          Parameters: center [x,y,z], radius, sides
+          Sample: {"type": "polygon", "name": "Polygon1", "params": {"center": [0,0,0], "radius": 5.0, "sides": 6}}
         
         - BOX: Create a box/cuboid
           Parameters: center [x,y,z], width, length, height
+          Sample: {"type": "box", "name": "Box1", "params": {"center": [0,0,0], "width": 5.0, "length": 10.0, "height": 3.0}}
         
         - SPHERE: Create a sphere
           Parameters: center [x,y,z], radius
+          Sample: {"type": "sphere", "name": "Sphere1", "params": {"center": [0,0,0], "radius": 5.0}}
         
         - CONE: Create a cone
           Parameters: center [x,y,z], radius, height, cap (optional, default true)
+          Sample: {"type": "cone", "name": "Cone1", "params": {"center": [0,0,0], "radius": 3.0, "height": 10.0}}
         
         - CYLINDER: Create a cylinder
           Parameters: center [x,y,z], radius, height, cap (optional, default true)
+          Sample: {"type": "cylinder", "name": "Cylinder1", "params": {"center": [0,0,0], "radius": 3.0, "height": 10.0}}
         
-        - SURFACE: Create a NURBS surface
-          Parameters: points [[x,y,z], ...], count [u,v], degree [u,v] (optional), closed [u,v] (optional)
+        - TORUS: Create a torus
+          Parameters: center [x,y,z], major_radius, minor_radius
+          Sample: {"type": "torus", "name": "Torus1", "params": {"center": [0,0,0], "major_radius": 5.0, "minor_radius": 2.0}}
+        
+        - PLANE: Create a plane surface
+          Parameters: center [x,y,z], width, height
+          Sample: {"type": "plane", "name": "Plane1", "params": {"center": [0,0,0], "width": 10.0, "height": 5.0}}
         
         Args:
             session_id: The session ID of the connected Rhino instance
             objects: List of objects to create, each containing:
-                - type: REQUIRED geometry type (e.g., "box", "sphere", "cylinder")
+                - type: REQUIRED geometry type (e.g., "point", "line", "box", "sphere")
                 - name: REQUIRED name for the object (for easier identification)
                 - params: REQUIRED dictionary of geometry-specific parameters
+                - description: OPTIONAL description for the object
+                - color: OPTIONAL color as hex string (e.g., "#FF0000") or RGB array
+                - layer: OPTIONAL layer name for the object
         
         Returns:
             JSON string containing the IDs and details of created objects
