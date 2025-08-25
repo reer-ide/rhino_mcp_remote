@@ -93,12 +93,7 @@ class QuickTester(SessionTester, MCPToolsTester):
         print("[INFO] Ready to test MCP tools")
         print("="*60)
         print(f"Sessions to test: {len(self.session_data_list)}")
-        print("\nThis will test:")
-        print("  • Scene information retrieval")
-        print("  • Object creation")
-        print("  • Object selection")
-        print("  • Metadata management")
-        print("  • Layer management")
+        print("\nThis will run a logical workflow and tests all tools:")
         print()
         
         try:
