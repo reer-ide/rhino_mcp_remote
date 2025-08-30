@@ -5,12 +5,14 @@ Comprehensive test suite for the Remote Rhino MCP Server with modular unit tests
 ## Quick Start
 
 ### Run Unit Tests (Fast)
+
 ```bash
 cd rhino_mcp_remote/tests
 python test_mcp_runner.py
 ```
 
 ### Run Integration Tests (Requires Rhino)
+
 ```bash
 # 1. Start server
 python -m remote_server.server
@@ -22,12 +24,12 @@ dotnet build
 # Launch with VS Code debugger "Rhino 8-netcore" to auto-load plugin
 
 # 3. Run integration tests (in new terminal)
-cd rhino_mcp_remote/tests  
+cd rhino_mcp_remote/tests
 
 # Full integration test (license + sessions + tools)
 python test_integration_connected_flow.py
 
-# Quick tool test (uses existing connected sessions) 
+# Quick tool test (uses existing connected sessions)
 python test_integration_connected_flow.py quick
 
 # Connection test only (no tool testing)
@@ -40,12 +42,10 @@ python test_integration_connected_flow.py help
 ## Test Structure
 
 ### Unit Tests
-- **`test_all_mcp_tools.py`** - Unit tests for all 13 MCP tools (FastMCP in-memory)
-- **`test_mcp_scenarios.py`** - Workflow scenario tests  
-- **`test_mcp_runner.py`** - Master runner for unit tests
-- **`test_tools_import.py`** - Import validation
+- **`python -m tests.integration.ai_render_tester`** - ai render testing(current will store image locally for preview)
 
 ### Integration Tests (Modular)
+
 - **`test_integration_connected_flow.py`** - Main test runner
 - **`integration/`** - Modular test components:
   - **`base_tester.py`** - Base class with common functionality
@@ -58,19 +58,23 @@ python test_integration_connected_flow.py help
 ## Integration Test Setup
 
 ### Prerequisites
+
 - Rhino 8+ with RhinoMCP plugin loaded
 - Remote server running on http://127.0.0.1:8080
 
 ### User Actions Required
+
 1. **License Registration**: Run `ReerRegister` in Rhino with provided license key
 2. **Connection**: Run `ReerStart` → choose 'remote' in Rhino with open document
 
 ### What Gets Tested
+
 **12-Phase Integration Workflow:**
+
 1. **Scene Assessment** - Extract units, auto-scale objects based on document units (mm→100x, m→0.1x)
 2. **Layer Creation** - Create test layer with color
 3. **Object Creation** - Box, sphere, cylinder with proper scaling
-4. **Metadata Management** - Add/update object names and descriptions  
+4. **Metadata Management** - Add/update object names and descriptions
 5. **Information Retrieval** - Query objects with attributes
 6. **Selection & Modification** - Chained operations (rotate→translate→recolor) with sequential execution
 7. **Viewport Capture** - Screenshot with auto-decode and save (PNG files)
@@ -81,20 +85,25 @@ python test_integration_connected_flow.py help
 12. **Verification** - Ensure complete cleanup
 
 **13 MCP Tools Tested:**
-- Scene info, object creation/modification/deletion  
+
+- Scene info, object creation/modification/deletion
 - Layer management, metadata operations
 - Selection tools, viewport capture, script execution
 
 ## New Test Features
 
 ### Unit-Aware Scaling
+
 Objects automatically scaled for visibility based on document units:
+
 - **Millimeters**: 100x scale (500mm box instead of 5mm)
-- **Meters**: 0.1x scale  
+- **Meters**: 0.1x scale
 - **Imperial**: 10x scale
 
 ### Interactive Visual Verification
+
 Test pauses before cleanup for manual inspection:
+
 ```
 👁️ VISUAL INSPECTION REQUIRED
 📋 Expected objects (scaled 100.0x for Millimeters):
@@ -106,7 +115,9 @@ Test pauses before cleanup for manual inspection:
 ```
 
 ### Automatic Screenshot Capture
+
 Viewport images auto-decoded and saved:
+
 ```
 📸 Viewport captured (285ms)
 💾 Image saved: viewport_capture_20250723_143022.png
@@ -129,8 +140,9 @@ Viewport images auto-decoded and saved:
 ## Test Results & Artifacts
 
 **Generated Files:**
+
 - `integration_test_results.json` - Detailed test report with performance metrics
-- `viewport_capture_YYYYMMDD_HHMMSS.png` - Screenshot captures  
+- `viewport_capture_YYYYMMDD_HHMMSS.png` - Screenshot captures
 - Console logs with object IDs, scaling factors, and execution times
 
 **Expected Success Rate:** 100% (13/13 tools passing)
@@ -138,7 +150,7 @@ Viewport images auto-decoded and saved:
 ## Coverage
 
 - **13 MCP tools** with comprehensive integration testing
-- **12-phase workflow** covering complete CAD operations  
+- **12-phase workflow** covering complete CAD operations
 - **Unit-aware scaling** for all document types
 - **Visual verification** with interactive inspection
 - **Error handling** with graceful fallbacks
