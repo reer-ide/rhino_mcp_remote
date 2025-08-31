@@ -45,6 +45,7 @@ def register_all_tools():
         viewport_tools,
         utility_tools,
         documentation_tools,
+        ai_render_tools,
     )
     
     # Register tools with the mcp instance only
@@ -58,6 +59,7 @@ def register_all_tools():
     utility_tools.register_tools(mcp, None)
     rhinoscript_tools.register_tools(mcp, None)
     documentation_tools.register_tools(mcp, None)
+    ai_render_tools.register_tools(mcp, None)
     
     logger.info("All MCP tools registered successfully")
 
@@ -144,7 +146,8 @@ def server_info() -> str:
             "execute_rhino_code",
             "get_rhino_selected_objects",
             "select_filtered_rhino_objects",
-            "look_up_RhinoScriptSyntax"
+            "look_up_RhinoScriptSyntax",
+            "ai_render_rhino_scene",
         ]
     }
     return str(info)
