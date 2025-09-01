@@ -19,7 +19,29 @@ def register_tools(mcp, connection_manager: Optional[ConnectionManager]):
             description: Optional description to add to objects
             
         Returns:
-            JSON string containing metadata addition results
+            JSON string with structure:
+            {
+              "status": "success",
+              "objects_processed": 2,
+              "results": [
+                {
+                  "object_id": "guid-string",
+                  "status": "success",
+                  "name": "Object Name",
+                  "description": "Object description"
+                },
+                {
+                  "object_id": "guid-string-2",
+                  "status": "error",
+                  "error": "Object not found"
+                }
+              ]
+            }
+            
+            On error:
+            {
+              "error": "Error message"
+            }
         """
         try:
             params = {
@@ -47,7 +69,29 @@ def register_tools(mcp, connection_manager: Optional[ConnectionManager]):
             description: Optional new description for objects
             
         Returns:
-            JSON string containing metadata update results
+            JSON string with structure:
+            {
+              "status": "success",
+              "objects_processed": 2,
+              "results": [
+                {
+                  "object_id": "guid-string",
+                  "status": "success",
+                  "name": "Updated Object Name",
+                  "description": "Updated description"
+                },
+                {
+                  "object_id": "guid-string-2",
+                  "status": "error",
+                  "error": "Failed to modify object attributes"
+                }
+              ]
+            }
+            
+            On error:
+            {
+              "error": "Error message"
+            }
         """
         try:
             params = {

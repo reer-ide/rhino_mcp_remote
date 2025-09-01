@@ -19,7 +19,16 @@ def register_tools(mcp, connection_manager: Optional[ConnectionManager]):
             session_id: The session ID of the connected Rhino instance
             
         Returns:
-            JSON string containing the ping response
+            JSON string with structure:
+            {
+              "status": "success",
+              "message": "Connection to Rhino is active"
+            }
+            
+            On connection failure:
+            {
+              "error": "Connection error message"
+            }
         """
         try:
             # Get connection manager lazily

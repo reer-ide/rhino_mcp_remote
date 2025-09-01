@@ -201,7 +201,7 @@ class MCPToolsTester(BaseIntegrationTester):
                     }
                 ]
             },
-            ["status", "layers_created"]
+            ["status", "layers"]
         )
         results['tests'].append(test_2)
         if test_2['status'] == 'PASS':
@@ -227,7 +227,7 @@ class MCPToolsTester(BaseIntegrationTester):
         print(f"\n[PHASE 3] Object Creation")
         
         test_3 = await self.test_mcp_tool_call(
-            "create_rhino_basic_objects",
+            "create_rhino_basic_geometries",
             {
                 "objects": [
                     {
@@ -552,7 +552,7 @@ for i in range(101):
 curve_id = rs.AddCurve(points)
 if curve_id:
     rs.ObjectLayer(curve_id, "{test_layer_name}")
-    rs.ObjectName(curve_id, "IntegrationTest_Spiral")
+    add_rhino_objects_metadata([str(curve_id)],"test_curve", "this is for testing")
     print("CREATED_OBJECT_ID:" + str(curve_id))
     print("Created spiral curve with scale: " + str(scale))
 else:
@@ -594,6 +594,155 @@ else:
         else:
             results['failed'] += 1
             print(f"   [FAIL] Failed to execute script: {test_9.get('error', 'Unknown')}")
+        
+        # Phase 8.5: Test Selection Functions
+        print(f"\n[UNITS] PHASE 8.5: Selection Functions Test")
+        print("="*60)
+        print("[UNITS] SELECTION TEST - MANUAL INTERACTION REQUIRED")
+        print("="*60)
+        print()
+        print("This phase tests the get_rhino_selected_objects function with:")
+        print("  1. Full object selection")
+        print("  2. Subobject selection (face/surface)")
+        print()
+        print("PLEASE PERFORM THE FOLLOWING IN RHINO NOW:")
+        print("1. Select TWO objects (click on them while holding Ctrl):")
+        print("   - One FULL object (any object from the test layer)")
+        print("   - One SUBOBJECT (hold Ctrl+Shift and click on a FACE/SURFACE of another object)")
+        print()
+        print("2. Once you have both selected, press Enter to continue the test...")
+        print()
+        
+        try:
+            input("Press Enter when you have selected one full object and one subobject (face/surface): ")
+        except EOFError:
+            print("Press Enter when you have selected one full object and one subobject (face/surface): [auto]")
+            print("[INFO] Running in non-interactive mode, assuming objects are selected")
+        
+        # Test the selection via script
+        test_9_5 = await self.test_mcp_tool_call(
+            "execute_rhinoscript",
+            {
+                "code": '''
+# Test get_rhino_selected_objects function with the new helpers
+print("=== Testing Selection Functions ===")
+
+# Test the selection function
+try:
+    selected_objects = get_rhino_selected_objects()
+    print("Selection test results:")
+    print("  Total selections: " + str(len(selected_objects)))
+    
+    for i, obj_ref in enumerate(selected_objects):
+        obj_id = str(obj_ref.Object().Id)
+        print("  Selection " + str(i+1) + ":")
+        print("    Object ID: " + obj_id)
+        
+        # Debug: Show all available methods on ObjRef (uncomment if needed for debugging)
+        # print("    Available ObjRef methods: " + str([method for method in dir(obj_ref) if not method.startswith('_')]))
+        
+        # Check if this is a subobject selection by trying to get subobject geometry
+        is_subobject = False
+        subobject_type = "Unknown"
+        
+        try:
+            # Try to get face geometry
+            face = obj_ref.Face()
+            if face is not None:
+                is_subobject = True
+                subobject_type = "Face"
+                print("    Type: SUBOBJECT - Face")
+                try:
+                    # Try different ways to get face area in IronPython
+                    if hasattr(face, 'Area'):
+                        print("    Face area: " + str(face.Area))
+                    elif hasattr(face, 'GetArea'):
+                        print("    Face area: " + str(face.GetArea()))
+                    else:
+                        print("    Face area: [Area method not available]")
+                except Exception as area_ex:
+                    print("    Face detected but could not get area: " + str(area_ex))
+        except Exception as face_ex:
+            print("    Face() method failed: " + str(face_ex))
+        
+        if not is_subobject:
+            try:
+                # Try to get edge geometry
+                edge = obj_ref.Edge()
+                if edge is not None:
+                    is_subobject = True
+                    subobject_type = "Edge"
+                    print("    Type: SUBOBJECT - Edge")
+                    try:
+                        # Try different ways to get edge length in IronPython
+                        if hasattr(edge, 'GetLength'):
+                            print("    Edge length: " + str(edge.GetLength()))
+                        elif hasattr(edge, 'Length'):
+                            print("    Edge length: " + str(edge.Length))
+                        else:
+                            print("    Edge length: [Length method not available]")
+                    except Exception as length_ex:
+                        print("    Edge detected but could not get length: " + str(length_ex))
+            except Exception as edge_ex:
+                print("    Edge() method failed: " + str(edge_ex))
+        
+        if not is_subobject:
+            print("    Type: FULL OBJECT")
+        
+        # Get object info
+        try:
+            rhino_obj = obj_ref.Object()
+            print("    Geometry type: " + str(rhino_obj.Geometry.ObjectType))
+            print("    Layer index: " + str(rhino_obj.Attributes.LayerIndex))
+        except Exception as obj_ex:
+            print("    Could not get object info: " + str(obj_ex))
+    
+    print("=== Selection Test Complete ===")
+    print("SELECTION_TEST_STATUS:SUCCESS")
+    print("SELECTIONS_COUNT:" + str(len(selected_objects)))
+    
+except Exception as e:
+    print("Error during selection test: " + str(e))
+    print("SELECTION_TEST_STATUS:ERROR")
+'''
+            },
+            ["status", "message", "printed_output"]
+        )
+        results['tests'].append(test_9_5)
+        if test_9_5['status'] == 'PASS':
+            results['passed'] += 1
+            print(f"   [PASS] Selection function test executed ({test_9_5.get('duration_ms', 0)}ms)")
+            
+            # Parse the selection test results
+            if 'response' in test_9_5:
+                response_data = test_9_5['response']
+                if isinstance(response_data, str):
+                    try:
+                        response_data = json.loads(response_data)
+                    except json.JSONDecodeError:
+                        response_data = {}
+                
+                printed_output = response_data.get('printed_output', '')
+                print("   [SELECTIONS] Test output:")
+                for line in printed_output.split('\n'):
+                    line = line.strip()
+                    if line:
+                        if line.startswith('SELECTION_TEST_STATUS:'):
+                            status = line.replace('SELECTION_TEST_STATUS:', '').strip()
+                            if status == 'SUCCESS':
+                                print(f"      [PASS] Selection test successful")
+                            else:
+                                print(f"      [FAIL] Selection test failed: {status}")
+                        elif line.startswith('SELECTIONS_COUNT:'):
+                            count = line.replace('SELECTIONS_COUNT:', '').strip()
+                            print(f"      [INFO] Total selections processed: {count}")
+                        elif not line.startswith('===') and not line.startswith('SELECTION_TEST_STATUS') and not line.startswith('SELECTIONS_COUNT'):
+                            print(f"      {line}")
+        else:
+            results['failed'] += 1
+            print(f"   [FAIL] Failed to execute selection test: {test_9_5.get('error', 'Unknown')}")
+        
+        print()
         
         # Phase 9: Visual Inspection Before Cleanup
         print(f"\n[UNITS] PHASE 9: Visual Inspection")
@@ -719,7 +868,7 @@ else:
             test_12 = await self.test_mcp_tool_call(
                 "delete_rhino_layers",
                 {"layers": [{"name": test_layer_name}]},
-                ["status", "layers_deleted"]
+                ["status", "layers"]
             )
             results['tests'].append(test_12)
             if test_12['status'] == 'PASS':

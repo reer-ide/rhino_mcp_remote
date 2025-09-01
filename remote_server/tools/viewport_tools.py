@@ -22,7 +22,23 @@ def register_tools(mcp, connection_manager: Optional[ConnectionManager]):
             max_size: Maximum size for the captured image in pixels
             
         Returns:
-            Image object containing the captured viewport
+            ImageContent object containing the captured viewport image.
+            
+            Plugin returns JSON structure:
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "<base64-encoded-image-data>"
+              }
+            }
+            
+            On error:
+            {
+              "type": "text", 
+              "text": "Error message"
+            }
         """
         try:
             params = {

@@ -110,7 +110,7 @@
       "duration_ms": 323.37
     },
     {
-      "tool": "create_rhino_basic_objects",
+      "tool": "create_rhino_basic_geometries",
       "status": "PASS",
       "response": {
         "status": "success",

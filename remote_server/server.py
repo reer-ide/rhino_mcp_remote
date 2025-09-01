@@ -137,7 +137,7 @@ def server_info() -> str:
             "get_rhino_objects_info",
             "add_rhino_objects_metadata",
             "update_rhino_objects_metadata",
-            "create_rhino_basic_objects",
+            "create_rhino_basic_geometries",
             "create_rhino_layers",
             "delete_rhino_layers",
             "delete_rhino_objects",
@@ -168,7 +168,7 @@ def main():
     
     logger.info(f"Starting Remote Rhino MCP Server v2.0 on {settings.host}:{settings.port}")
     logger.info("Architecture: License-based persistent sessions with auto-reconnection")
-    logger.info("Available Rhino tools: get_rhino_scene_info, get_rhino_objects_info, add_rhino_objects_metadata, update_rhino_objects_metadata, create_rhino_basic_objects, create_rhino_layers, delete_rhino_layers, delete_rhino_objects, modify_rhino_objects, capture_rhino_viewport, execute_rhino_code, get_rhino_selected_objects, select_filtered_rhino_objects, look_up_RhinoScriptSyntax")
+    logger.info("Available Rhino tools: get_rhino_scene_info, get_rhino_objects_info, add_rhino_objects_metadata, update_rhino_objects_metadata, create_rhino_basic_geometries, create_rhino_layers, delete_rhino_layers, delete_rhino_objects, modify_rhino_objects, capture_rhino_viewport, execute_rhino_code, get_rhino_selected_objects, select_filtered_rhino_objects, look_up_RhinoScriptSyntax")
     
     # Register routes and tools synchronously (non-async parts)
     register_health_routes(mcp)

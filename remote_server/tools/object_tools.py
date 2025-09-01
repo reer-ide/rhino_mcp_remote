@@ -9,7 +9,7 @@ def register_tools(mcp, connection_manager: Optional[ConnectionManager]):
     """Register object tools with the MCP server."""
     
     @mcp.tool()
-    async def create_rhino_basic_objects(session_id: str, objects: List[Dict[str, Any]]) -> str:
+    async def create_rhino_basic_geometries(session_id: str, objects: List[Dict[str, Any]]) -> str:
         """Create multiple basic geometry objects in Rhino at once
         
         This function efficiently creates multiple geometric objects in a single operation.
@@ -88,7 +88,27 @@ def register_tools(mcp, connection_manager: Optional[ConnectionManager]):
                 - layer: OPTIONAL layer name for the object
         
         Returns:
-            JSON string containing the IDs and details of created objects
+            JSON string with structure:
+            {
+              "status": "success",  // or "partial_success" if some objects failed
+              "count": 3,
+              "created": 3,
+              "errors": 0,
+              "objects": [
+                {
+                  "object_id": "guid-string",
+                  "name": "Point1",
+                  "type": "POINT",
+                  "description": "Point description",
+                  "metadata_applied": true
+                }
+              ]
+            }
+            
+            On error:
+            {
+              "error": "Error creating geometries: error message"
+            }
         """
         try:
             # Get connection manager lazily

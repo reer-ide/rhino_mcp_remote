@@ -22,12 +22,23 @@ def register_tools(mcp, connection_manager: Optional[ConnectionManager]):
 	async def ai_render_rhino_scene(session_id: str, prompt: str, max_size: int = 800) -> ImageContent:
 		"""Use Replicate Flux-Depth to stylize the current Rhino viewport based on a text prompt.
 		
+		This tool:
+		1. Captures the current Rhino viewport using capture_rhino_viewport
+		2. Sends the image and prompt to Replicate's Flux-Depth AI model
+		3. Returns the AI-stylized rendering as an ImageContent object
+		4. Saves both input and output images to tests/ai directory with timestamps
+		
+		Requires REPLICATE_TOKEN environment variable or settings.replicate_token.
+		
 		Args:
 			session_id: Active Rhino session id
-			prompt: Text prompt to guide the rendering
-			max_size: Max output size in pixels (keeps aspect ratio)
+			prompt: Text prompt to guide the rendering (e.g., "futuristic cyberpunk style", "watercolor painting")
+			max_size: Max output size in pixels (keeps aspect ratio, default: 800)
+			
 		Returns:
-			ImageContent with the rendered image
+			ImageContent object containing the AI-rendered image as base64 JPEG data.
+			
+			On error returns error message via handle_error utility.
 		"""
 		try:
 			# 1) Capture Rhino viewport as base64 via the session's WebSocket

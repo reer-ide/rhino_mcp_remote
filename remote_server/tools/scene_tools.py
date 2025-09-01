@@ -13,15 +13,51 @@ def register_tools(mcp, connection_manager: Optional[ConnectionManager]):
         """Get basic information about the current Rhino scene.
         
         This is a lightweight function that returns basic scene information:
-        - List of all layers with basic information about the layer and 5 sample objects with their metadata 
-        - No metadata or detailed properties
+        - Document metadata (name, dates, tolerances, units, object/layer counts)
+        - List of all layers with basic information and up to 5 sample objects per layer
+        - Object samples include: id, name, type, color, material, and any user metadata
         - Use this for quick scene overview or when you only need basic object information
         
         Args:
             session_id: The session ID of the connected Rhino instance
             
-        Returns:
-            JSON string containing basic scene information
+        Returns dict with: status, selected_count, unique_objects_count, selected_objects (array)
+        Sample response:
+            {
+              "status": "success",
+              "document": {
+                "name": "document_name.3dm",
+                "date_created": "2024-01-01T12:00:00Z",
+                "date_modified": "2024-01-01T13:30:00Z",
+                "tolerance": 0.01,
+                "angle_tolerance": 1.0,
+                "units": "Millimeters",
+                "total_objects": 25,
+                "total_layers": 5
+              },
+              "layers": [
+                {
+                  "id": "layer-guid",
+                  "name": "Layer 01",
+                  "full_path": "Layer 01", 
+                  "color": "#FF0000",
+                  "visible": true,
+                  "locked": false,
+                  "object_count": 12,
+                  "sample_objects": [
+                    {
+                      "id": "object-guid",
+                      "name": "Object Name",
+                      "type": "Curve",
+                      "color": "#0000FF", 
+                      "material": "Default",
+                      "user_data": {"key": "value"}
+                    }
+                  ]
+                }
+              ],
+              "timestamp": "2024-01-01T14:00:00Z"
+            }
         """
         try:
             # Get connection manager lazily
@@ -37,12 +73,7 @@ def register_tools(mcp, connection_manager: Optional[ConnectionManager]):
         """Get detailed information about specific objects by their GUIDs, or all objects in the document.
         
         This function provides comprehensive object information including:
-        - GUID
-        - Name
-        - Type
-        - Layer
-        - Color
-        - Bounding Box
+        - GUID, name, type, layer, color, bounding box
         - All user-defined metadata from the objects
         - Complete object attributes and metadata (if include_attributes is True)
         - Proper material information using RenderMaterial (not MaterialIndex)
@@ -57,7 +88,35 @@ def register_tools(mcp, connection_manager: Optional[ConnectionManager]):
             include_attributes: Whether to include full object attributes in the response (default: False for performance)
             
         Returns:
-            JSON string containing objects information with proper material data and metadata
+            JSON string with structure:
+            {
+              "status": "success",
+              "objects": [
+                {
+                  "object_id": "guid-string",
+                  "name": "Object Name",
+                  "geometry_type": "Curve",
+                  "layer": {
+                    "id": "layer-guid",
+                    "name": "Layer 01",
+                    "full_path": "Parent::Layer 01"
+                  },
+                  "color": "#FF0000",
+                  "material": "Material Name",
+                  "visible": true,
+                  "locked": false,
+                  "user_data": {"key": "value"},
+                  "bounding_box": {
+                    "min": [0, 0, 0],
+                    "max": [10, 10, 10]
+                  },
+                  "attributes": {...} // if include_attributes=True
+                }
+              ],
+              "count": 5,
+              "get_all_objects": false,
+              "timestamp": "2024-01-01T14:00:00Z"
+            }
         """
         try:
             if not obj_guids and not get_all_objects:

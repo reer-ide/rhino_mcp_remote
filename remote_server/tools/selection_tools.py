@@ -12,13 +12,71 @@ def register_tools(mcp, connection_manager: Optional[ConnectionManager]):
     async def get_rhino_selected_objects(session_id: str, include_lights: bool = False, include_grips: bool = False) -> str:
         """Get the info of all objects that are currently selected in Rhino.
         
+        Returns information about all selected objects including their Guid, metadata,
+        geometry type, layer information, and user-defined data. Supports both full object
+        and subobject selection (faces, edges, etc.).
+        
         Args:
             session_id: The session ID of the connected Rhino instance
             include_lights: Whether to include light objects in selection (default: False)
             include_grips: Whether to include grip objects in selection (default: False)
             
-        Returns:
-            JSON string containing list of selected object IDs and their basic information
+        Returns dict with: status, selected_count, unique_objects_count, selected_objects (array)
+        - selected_count: Total number of selections (including subobjects)
+        - unique_objects_count: Number of unique parent objects
+        
+        Sample response (full object selection):
+            {
+              "status": "success",
+              "selected_count": 5,
+              "unique_objects_count": 3,
+              "include_lights": false,
+              "include_grips": false,
+              "selected_objects": [
+                {
+                  "id": "guid-string",
+                  "type": "Curve",
+                  "name": "Object Name",
+                  "layer": "Layer 01",
+                  "metadata": {"key": "value"},
+                  "selection_type": "full"
+                }
+              ]
+            }
+            
+        Sample response (subobject selection):
+            {
+              "status": "success",
+              "selected_count": 3,
+              "unique_objects_count": 1,
+              "include_lights": false,
+              "include_grips": false,
+              "selected_objects": [
+                {
+                  "id": "guid-string",
+                  "type": "Brep",
+                  "name": "Object Name",
+                  "layer": "Layer 01",
+                  "metadata": {"key": "value"},
+                  "selection_type": "subobject", // or "mixed" if both the parent object and its subobjects selected
+                  "subobjects": [
+                    {
+                      "index": 0,
+                      "type": "BrepFace"
+                    },
+                    {
+                      "index": 2,
+                      "type": "BrepFace"
+                    }
+                  ]
+                }
+              ]
+            }
+            
+            If no objects selected:
+            {
+              "error": "No objects selected"
+            }
         """
         try:
             params = {
@@ -64,7 +122,15 @@ def register_tools(mcp, connection_manager: Optional[ConnectionManager]):
             filters_type: How to combine multiple filters ("and" or "or", default: "and")
             
         Returns:
-            JSON string containing selection results, count and GUIDs of selected objects, and any unselectable objects
+            JSON string with structure:
+            {
+              "status": "success", 
+              "selected_count": 3,
+              "selected_objects": ["guid-1", "guid-2", "guid-3"],
+              "unselectable_count": 1,
+              "unselectable_objects": ["guid-4"],
+              "message": "Selected 3 objects, 1 object could not be selected"
+            }
         """
         try:
             params = {

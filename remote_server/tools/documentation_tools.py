@@ -23,10 +23,19 @@ def register_tools(mcp, connection_manager: Optional[ConnectionManager]):
         directly from the GitHub source code repository.
         
         Args:
+            session_id: The session ID (not used for this tool as it fetches from GitHub)
             function_name: The name of the RhinoScriptSyntax function to look up
             
         Returns:
-            str: The documentation for the function including signature, parameters, returns, and examples
+            String containing formatted Markdown documentation including:
+            - Function signature
+            - Description  
+            - Parameters section
+            - Returns section
+            - Example code blocks
+            - GitHub source link
+            
+            On error returns plain text error message.
         """
         try:
             # Get the category for the function
