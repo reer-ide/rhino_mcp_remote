@@ -69,7 +69,7 @@ def register_tools(mcp, connection_manager: Optional[ConnectionManager]):
             return handle_error("getting scene info", session_id, e)
 
     @mcp.tool()
-    async def get_rhino_objects_info(session_id: str, obj_guids: Optional[List[str]] = None, get_all_objects: bool = False, include_attributes: bool = False) -> str:
+    async def get_rhino_objects_info(session_id: str, object_ids: Optional[List[str]] = None, get_all_objects: bool = False, include_attributes: bool = False) -> str:
         """Get detailed information about specific objects by their GUIDs, or all objects in the document.
         
         This function provides comprehensive object information including:
@@ -79,11 +79,11 @@ def register_tools(mcp, connection_manager: Optional[ConnectionManager]):
         - Proper material information using RenderMaterial (not MaterialIndex)
         
         IMPORTANT: Using get_all_objects=True may return a very large amount of data if the document 
-        contains many objects. Use this option carefully and consider using obj_guids for specific objects instead.
+        contains many objects. Use this option carefully and consider using object_ids for specific objects instead.
         
         Args:
             session_id: The session ID of the connected Rhino instance
-            obj_guids: Optional list of object GUIDs to get information for specific objects
+            object_ids: Optional list of object GUIDs to get information for specific objects
             get_all_objects: If True, returns information for ALL objects in the document (use with caution - may return large amounts of data)
             include_attributes: Whether to include full object attributes in the response (default: False for performance)
             
@@ -119,15 +119,15 @@ def register_tools(mcp, connection_manager: Optional[ConnectionManager]):
             }
         """
         try:
-            if not obj_guids and not get_all_objects:
-                raise Exception("Either 'obj_guids' list or 'get_all_objects' = True must be provided")
+            if not object_ids and not get_all_objects:
+                raise Exception("Either 'object_ids' list or 'get_all_objects' = True must be provided")
             
             # Get connection manager lazily
             from remote_server.dependencies import get_connection_manager
             conn_mgr = await get_connection_manager()
             
             params = {
-                "obj_guids": obj_guids,
+                "object_ids": object_ids,
                 "get_all_objects": get_all_objects,
                 "include_attributes": include_attributes
             }
