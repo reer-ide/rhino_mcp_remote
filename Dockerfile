@@ -7,21 +7,19 @@ WORKDIR /app
 RUN pip install uv
 
 # Copy pyproject.toml and uv.lock first for better caching
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock README.md LICENSE ./ 
 
 # Install dependencies using uv
-RUN uv sync --frozen
+RUN uv sync --frozen --no-dev
 
 # Copy application code
 COPY . .
 
-# Set environment variables
-ENV PYTHONPATH=/app
-ENV HOST=0.0.0.0
-ENV PORT=8080
-
 # Expose port
 EXPOSE 8080
 
-# Run the server
-CMD ["python", "-m", "remote_server.server"] 
+# Set host to 0.0.0.0 for cloud deployment
+ENV HOST=0.0.0.0
+
+# Run the server using uv run to ensure proper virtual environment activation
+CMD ["uv", "run", "python", "remote_server/server.py"]
