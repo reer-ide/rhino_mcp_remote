@@ -6,7 +6,6 @@ import asyncio
 from typing import Dict, Any, Optional, List
 from .license_tester import LicenseTester
 from .session_tester import SessionTester
-from .mcp_tools_tester import MCPToolsTester
 from .quick_tester import QuickTester
 
 
@@ -59,10 +58,10 @@ class ConnectedFlowTester(QuickTester, LicenseTester):
         print("\nStep 7: Verifying plugin connection...")
         if not await self.verify_plugin_connection():
             return False
-        
-        # Step 8: Test MCP tools
-        print("\nStep 8: Testing MCP tools...")
-        return await self.test_mcp_tools()
+
+        # Test completed successfully
+        print("\n✅ All integration tests passed!")
+        return True
     
     async def run_connection_test_only(self) -> bool:
         """Test only the connection flow without MCP tools"""

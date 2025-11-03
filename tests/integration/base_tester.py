@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 class BaseIntegrationTester:
     """Base class for integration testing with common functionality"""
     
-    def __init__(self, server_url: str = "http://127.0.0.1:8080"):
+    def __init__(self, server_url: str = "http://127.0.0.1:8001"):
         self.server_url = server_url
         self.test_user_id = "integration-test-user"
         self.license_data: Optional[Dict[str, Any]] = None
@@ -32,8 +32,9 @@ class BaseIntegrationTester:
                 async with session.get(f"{self.server_url}/health", timeout=5) as response:
                     if response.status == 200:
                         health_data = await response.json()
-                        print(f"[SUCCESS] Server is running: {health_data.get('server', 'unknown')}")
-                        print(f"   Architecture: {health_data.get('architecture', 'unknown')}")
+                        print(f"[SUCCESS] Server is running: {health_data.get('status', 'unknown')}")
+                        print(f"   Version: {health_data.get('version', 'unknown')}")
+                        print(f"   Timestamp: {health_data.get('timestamp', 'unknown')}")
                         return True
                     else:
                         print(f"[ERROR] Server responded with status {response.status}")

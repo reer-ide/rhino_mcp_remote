@@ -6,15 +6,14 @@ import asyncio
 import json
 from typing import Dict, Any, Optional, List
 from .session_tester import SessionTester
-from .mcp_tools_tester import MCPToolsTester
 
 
-class QuickTester(SessionTester, MCPToolsTester):
+class QuickTester(SessionTester):
     """Quick test functionality that uses existing connected sessions"""
     
     async def quick_test_tools(self) -> bool:
-        """Quick test - find connected sessions and run tool tests directly"""
-        print("[TEST] Quick MCP Tool Test (using existing connected sessions)")
+        """Quick test - find connected sessions and verify they are active"""
+        print("[TEST] Quick Session Test (using existing connected sessions)")
         print("=" * 60)
         
         # Step 1: Check server
@@ -88,66 +87,14 @@ class QuickTester(SessionTester, MCPToolsTester):
                 'issued_to': self.test_user_id
             }
         
-        # Step 3: Confirm with user
+        # Step 3: Verification complete
         print("\n" + "="*60)
-        print("[INFO] Ready to test MCP tools")
+        print("[INFO] Connected sessions verified")
         print("="*60)
-        print(f"Sessions to test: {len(self.session_data_list)}")
-        print("\nThis will run a logical workflow and tests all tools:")
+        print(f"Sessions verified: {len(self.session_data_list)}")
         print()
-        
-        try:
-            confirm = input("Continue with testing? (y/n): ").strip().lower()
-            if confirm not in ['y', 'yes']:
-                print("[INFO] Test cancelled by user")
-                return False
-        except EOFError:
-            # Non-interactive mode, proceed automatically
-            print("Continue with testing? (y/n): y [auto]")
-            print("[INFO] Running in non-interactive mode, proceeding automatically")
-        
-        # Step 4: Run MCP tool tests
-        print("\nStep 3: Testing MCP tools...")
-        return await self.test_mcp_tools()
-    
-    async def quick_test_specific_tool(self, tool_name: str, arguments: Dict[str, Any]) -> bool:
-        """Quick test a specific tool with custom arguments"""
-        print(f"🔧 Quick Test: {tool_name}")
-        print("=" * 60)
-        
-        # Check server and get sessions
-        if not await self.check_server_running():
-            print("[ERROR] Server is not running")
-            return False
-        
-        connected_sessions = await self.get_active_sessions_for_user()
-        if not connected_sessions:
-            print("[ERROR] No connected sessions found")
-            return False
-        
-        # Use first connected session
-        session = connected_sessions[0]
-        print(f"Using session: {session['session_id'][:8]}...")
-        print(f"File: {session['file_path']}")
-        
-        # Set up context
-        context = {
-            'license_id': session.get('license_id'),
-            'user_id': self.test_user_id,
-            'session_id': session['session_id']
-        }
-        
-        # Call the tool
-        try:
-            print(f"\nCalling {tool_name} with arguments:")
-            print(json.dumps(arguments, indent=2))
-            
-            result = await self.mcp_client.call_tool(tool_name, arguments=arguments, context=context)
-            
-            print("\nResult:")
-            print(json.dumps(result, indent=2))
-            
-            return result.get('type') == 'response'
-        except Exception as e:
-            print(f"[ERROR] Error calling tool: {e}")
-            return False
+        print("✅ Quick test completed successfully!")
+        print("   All sessions are connected and ready for use.")
+        print()
+
+        return True

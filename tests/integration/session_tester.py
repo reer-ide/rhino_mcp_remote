@@ -90,7 +90,7 @@ class SessionTester(BaseIntegrationTester):
                 
                 async with aiohttp.ClientSession() as session:
                     async with session.post(
-                        f"{self.server_url}/sessions/create", 
+                        f"{self.server_url}/api/sessions/create",
                         json=session_request
                     ) as response:
                         if response.status == 200:
@@ -175,7 +175,7 @@ class SessionTester(BaseIntegrationTester):
                 try:
                     async with aiohttp.ClientSession() as session:
                         async with session.get(
-                            f"{self.server_url}/sessions/{session_data['session_id']}/status"
+                            f"{self.server_url}/api/sessions/{session_data['session_id']}/status"
                         ) as response:
                             if response.status == 200:
                                 status_data = await response.json()
@@ -205,13 +205,13 @@ class SessionTester(BaseIntegrationTester):
         """Get all active sessions for the test user"""
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(f"{self.server_url}/sessions/{self.test_user_id}") as response:
+                async with session.get(f"{self.server_url}/api/sessions/{self.test_user_id}") as response:
                     if response.status == 200:
                         data = await response.json()
-                        valid_sessions = data.get('valid_sessions', [])
+                        sessions = data.get('sessions', [])
                         # Filter for active sessions with instance_id (connected sessions)
                         connected_sessions = [
-                            s for s in valid_sessions 
+                            s for s in sessions
                             if s.get('status') == 'active' and s.get('instance_id')
                         ]
                         return connected_sessions
@@ -289,7 +289,7 @@ class SessionTester(BaseIntegrationTester):
                 try:
                     async with aiohttp.ClientSession() as session:
                         async with session.get(
-                            f"{self.server_url}/sessions/{self.session_data['session_id']}/status"
+                            f"{self.server_url}/api/sessions/{self.session_data['session_id']}/status"
                         ) as response:
                             if response.status == 200:
                                 status_data = await response.json()
